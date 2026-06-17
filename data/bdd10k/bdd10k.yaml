@@ -1,7 +1,6 @@
 path: data/bdd10k
 train: images/train
 val: images/val
-test: images/test
 
 names:
   0: pedestrian

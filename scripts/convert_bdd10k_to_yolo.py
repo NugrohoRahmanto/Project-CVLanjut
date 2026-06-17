@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import shutil
 from pathlib import Path
 
@@ -31,8 +30,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-dir", default="")
     parser.add_argument("--output-label-dir", default="")
     parser.add_argument("--classes", default=",".join(BDD10K_NAMES))
-    parser.add_argument("--val-ratio", type=float, default=0.2, help="Validation ratio taken from the original BDD train split when using --data-root.")
-    parser.add_argument("--seed", type=int, default=42, help="Seed for deterministic train/val split when using --data-root.")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -89,7 +86,16 @@ def image_size(path: Path) -> tuple[int, int]:
 
 def find_images(path: Path) -> list[Path]:
     exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    if not path.exists():
+        return []
     return sorted(item for item in path.rglob("*") if item.is_file() and item.suffix.lower() in exts)
+
+
+def json_image_names(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    records = json.loads(path.read_text(encoding="utf-8"))
+    return {str(item.get("name")) for item in records if item.get("name")}
 
 
 def clear_directory(path: Path) -> None:
@@ -114,35 +120,46 @@ def link_images(images: list[Path], target_dir: Path) -> None:
         print(f"Symlink failed for {copied} images in {target_dir}; copied files instead.")
 
 
-def prepare_ultralytics_image_splits(data_root: Path, val_ratio: float, seed: int) -> tuple[int, int, int]:
-    if not 0.0 < val_ratio < 1.0:
-        raise ValueError("--val-ratio must be between 0 and 1.")
-    original_train = data_root / "train"
-    original_val = data_root / "val"
-    if not original_train.exists():
-        raise FileNotFoundError(f"Original BDD train image directory not found: {original_train}")
-    if not original_val.exists():
-        raise FileNotFoundError(f"Original BDD val image directory not found: {original_val}")
+def build_image_index(data_root: Path) -> dict[str, Path]:
+    index: dict[str, Path] = {}
+    for split in ("train", "val", "test"):
+        for image in find_images(data_root / split):
+            index.setdefault(image.name, image)
+    return index
 
-    train_images_all = find_images(original_train)
-    final_test_images = find_images(original_val)
-    if not train_images_all:
-        raise RuntimeError(f"No images found in {original_train}")
-    if not final_test_images:
-        raise RuntimeError(f"No images found in {original_val}")
 
-    shuffled = train_images_all[:]
-    random.Random(seed).shuffle(shuffled)
-    val_count = max(1, int(round(len(shuffled) * val_ratio)))
-    val_images = sorted(shuffled[:val_count])
-    train_images = sorted(shuffled[val_count:])
-    if not train_images:
-        raise RuntimeError("Train split is empty after applying --val-ratio.")
+def prepare_ultralytics_splits(data_root: Path) -> tuple[int, int]:
+    train_json = data_root / "labels" / "bdd100k_labels_images_train.json"
+    val_json = data_root / "labels" / "bdd100k_labels_images_val.json"
+    if not train_json.exists():
+        raise FileNotFoundError(f"Required train annotation JSON not found: {train_json}")
+    if not val_json.exists():
+        raise FileNotFoundError(f"Required val annotation JSON not found: {val_json}")
 
+    image_index = build_image_index(data_root)
+    if not image_index:
+        raise RuntimeError(f"No images found under {data_root}/train, {data_root}/val, or {data_root}/test")
+
+    train_names = json_image_names(train_json) & set(image_index)
+    val_names = json_image_names(val_json) & set(image_index)
+    if not train_names:
+        raise RuntimeError(f"No image files match train annotation names from {train_json}")
+    if not val_names:
+        raise RuntimeError(f"No image files match val annotation names from {val_json}")
+
+    train_names = train_names - val_names
+    if not train_names:
+        raise RuntimeError("Train split became empty after excluding val images.")
+
+    train_images = [image_index[name] for name in sorted(train_names)]
+    val_images = [image_index[name] for name in sorted(val_names)]
     link_images(train_images, data_root / "images" / "train")
     link_images(val_images, data_root / "images" / "val")
-    link_images(final_test_images, data_root / "images" / "test")
-    return len(train_images), len(val_images), len(final_test_images)
+    test_dir = data_root / "images" / "test"
+    if test_dir.exists() or test_dir.is_symlink():
+        clear_directory(test_dir)
+        test_dir.rmdir()
+    return len(train_images), len(val_images)
 
 
 def ensure_data_yaml(data_root: Path) -> None:
@@ -151,8 +168,7 @@ def ensure_data_yaml(data_root: Path) -> None:
     yaml_path.write_text(
         f"path: {data_root.as_posix()}\n"
         "train: images/train\n"
-        "val: images/val\n"
-        "test: images/test\n\n"
+        "val: images/val\n\n"
         "names:\n"
         f"{names}\n",
         encoding="utf-8",
@@ -195,12 +211,11 @@ def convert_data_root(args: argparse.Namespace, class_to_id: dict[str, int]) -> 
     data_root = Path(args.data_root)
     if not data_root.exists():
         raise FileNotFoundError(f"Data root not found: {data_root}")
-    train_count, val_count, test_count = prepare_ultralytics_image_splits(data_root, args.val_ratio, args.seed)
+    train_count, val_count = prepare_ultralytics_splits(data_root)
     print(
-        "Prepared Ultralytics image splits: "
-        f"train={train_count} from original train, "
-        f"val={val_count} from original train, "
-        f"test={test_count} from original val"
+        "Prepared Ultralytics image splits from annotation JSON: "
+        f"train={train_count}, val={val_count}. "
+        "Val images are excluded from train. Test split is not used."
     )
     ensure_data_yaml(data_root)
 
@@ -210,8 +225,7 @@ def convert_data_root(args: argparse.Namespace, class_to_id: dict[str, int]) -> 
 
     conversion_plan = [
         ("train", data_root / "labels" / "bdd100k_labels_images_train.json", data_root / "images" / "train", data_root / "labels" / "train"),
-        ("val", data_root / "labels" / "bdd100k_labels_images_train.json", data_root / "images" / "val", data_root / "labels" / "val"),
-        ("test", data_root / "labels" / "bdd100k_labels_images_val.json", data_root / "images" / "test", data_root / "labels" / "test"),
+        ("val", data_root / "labels" / "bdd100k_labels_images_val.json", data_root / "images" / "val", data_root / "labels" / "val"),
     ]
     for split, input_json, image_dir, output_dir in conversion_plan:
         if not input_json.exists():
@@ -219,6 +233,10 @@ def convert_data_root(args: argparse.Namespace, class_to_id: dict[str, int]) -> 
         clear_directory(output_dir)
         converted, missing, invalid = convert_records(input_json, image_dir, output_dir, class_to_id, args.overwrite)
         print(f"{split}: converted={converted} missing_images={missing} invalid_boxes={invalid} labels={output_dir}")
+        if converted == 0:
+            raise RuntimeError(
+                f"No {split} labels were converted. Check that {input_json} image names match files in {image_dir}."
+            )
         total_converted += converted
         total_missing += missing
         total_invalid += invalid

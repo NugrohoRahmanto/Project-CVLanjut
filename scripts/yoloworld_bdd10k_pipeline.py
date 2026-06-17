@@ -92,7 +92,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--conf-thres", type=float, default=0.25)
     parser.add_argument("--iou-thres", type=float, default=0.7)
     parser.add_argument("--eval-only", action="store_true")
-    parser.add_argument("--eval-split", choices=("train", "val", "test"), default="test", help="Dataset split used by --eval-only. Default test uses original BDD val after conversion.")
+    parser.add_argument("--eval-split", choices=("train", "val"), default="val", help="Dataset split used by --eval-only. Default: val.")
     parser.add_argument("--predict-only", action="store_true")
     parser.add_argument("--source", default="")
     parser.add_argument("--save-eval-samples", action=argparse.BooleanOptionalAction, default=True, help="Save sample inference visualizations after train/eval.")
@@ -336,7 +336,7 @@ def prepare_known_dataset(args: argparse.Namespace, experiment_dir: Path, logger
     yaml_out = experiment_dir / "configs" / "config_used.yaml"
     out_root.mkdir(parents=True, exist_ok=True)
     yaml_out.parent.mkdir(parents=True, exist_ok=True)
-    for split in ("train", "val", "test"):
+    for split in ("train", "val"):
         image_dir = resolve_split_path(dataset_root, config.get(split))
         if image_dir is None:
             continue
@@ -375,11 +375,11 @@ def prepare_known_dataset(args: argparse.Namespace, experiment_dir: Path, logger
             "Check that data/bdd10k/labels/train/*.txt exists or that bdd100k_labels_images_train.json matches data/bdd10k/images/train."
         )
     if val_annotation_count == 0:
-        logger.warning(
-            "No known-class validation annotations found in images/val. "
-            "Validation/eval will still use images/val; run dataset conversion/check if this is unexpected."
+        raise RuntimeError(
+            "No known-class validation annotations were found after filtering images/val. "
+            "Validation data must not be empty. Check data/bdd10k/labels/val/*.txt and --known-classes."
         )
-    filtered_config = {"path": str(out_root.resolve()), "train": "images/train", "val": "images/val", "test": "images/test", "names": {i: n for i, n in enumerate(known)}}
+    filtered_config = {"path": str(out_root.resolve()), "train": "images/train", "val": "images/val", "names": {i: n for i, n in enumerate(known)}}
     yaml_out.write_text(yaml.safe_dump(filtered_config, sort_keys=False), encoding="utf-8")
     logger.info("Created known-class dataset: %s", yaml_out)
     logger.info("Known classes: %s", known)
@@ -520,34 +520,42 @@ def save_metrics_csv(path: Path, metrics: Any, logger: logging.Logger) -> None:
 def save_confidence_artifacts(rows: list[dict[str, Any]], experiment_dir: Path, logger: logging.Logger) -> None:
     metrics_dir = experiment_dir / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = metrics_dir / "confidence_by_label.csv"
-    chart_path = metrics_dir / "confidence_by_label.png"
-    grouped: dict[str, list[float]] = {}
+    for old_name in ("confidence_by_label.csv", "confidence_by_label.png"):
+        old_path = metrics_dir / old_name
+        if old_path.exists():
+            old_path.unlink()
+    csv_path = metrics_dir / "confidence_histogram.csv"
+    chart_path = metrics_dir / "confidence_histogram.png"
+    grouped: dict[str, list[float]] = {"known": [], "unknown": []}
     for row in rows:
-        label = str(row.get("final_label") or row.get("prompt_label") or "unknown")
         try:
             confidence = float(row.get("confidence"))
         except (TypeError, ValueError):
             continue
-        grouped.setdefault(label, []).append(confidence)
+        group = "unknown" if bool(row.get("is_unknown")) else "known"
+        grouped[group].append(confidence)
 
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["label", "count", "mean_confidence", "min_confidence", "max_confidence"])
-        writer.writeheader()
-        for label in sorted(grouped):
-            values = grouped[label]
-            writer.writerow(
+    bins = [i / 10 for i in range(11)]
+    histogram_rows: list[dict[str, Any]] = []
+    for group, values in grouped.items():
+        for start, end in zip(bins[:-1], bins[1:]):
+            count = sum(1 for value in values if start <= value <= end) if end == 1.0 else sum(1 for value in values if start <= value < end)
+            histogram_rows.append(
                 {
-                    "label": label,
-                    "count": len(values),
-                    "mean_confidence": f"{sum(values) / len(values):.6f}",
-                    "min_confidence": f"{min(values):.6f}",
-                    "max_confidence": f"{max(values):.6f}",
+                    "group": group,
+                    "confidence_min": f"{start:.1f}",
+                    "confidence_max": f"{end:.1f}",
+                    "count": count,
                 }
             )
-    logger.info("Saved confidence summary csv: %s", csv_path)
 
-    if not grouped:
+    with csv_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["group", "confidence_min", "confidence_max", "count"])
+        writer.writeheader()
+        writer.writerows(histogram_rows)
+    logger.info("Saved confidence histogram csv: %s", csv_path)
+
+    if not grouped["known"] and not grouped["unknown"]:
         logger.warning("No detections available for confidence chart.")
         return
     try:
@@ -559,30 +567,26 @@ def save_confidence_artifacts(rows: list[dict[str, Any]], experiment_dir: Path, 
         logger.warning("Could not import matplotlib for confidence chart: %s", exc)
         return
 
-    labels = sorted(grouped)
-    means = [sum(grouped[label]) / len(grouped[label]) for label in labels]
-    counts = [len(grouped[label]) for label in labels]
-    width = max(8, min(18, len(labels) * 1.6))
-    fig, ax = plt.subplots(figsize=(width, 5))
-    bars = ax.bar(labels, means, color=["#d62728" if label == UNKNOWN_OBJECT_LABEL else "#2ca02c" for label in labels])
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("Mean confidence")
-    ax.set_title("Detection Confidence on Evaluation Samples")
-    ax.tick_params(axis="x", rotation=30)
-    for bar, count in zip(bars, counts):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"n={count}", ha="center", va="bottom", fontsize=9)
+    fig, ax = plt.subplots(figsize=(9, 5))
+    if grouped["known"]:
+        ax.hist(grouped["known"], bins=bins, alpha=0.7, label=f"Known (n={len(grouped['known'])})", color="#2ca02c", edgecolor="black")
+    if grouped["unknown"]:
+        ax.hist(grouped["unknown"], bins=bins, alpha=0.7, label=f"Unknown (n={len(grouped['unknown'])})", color="#d62728", edgecolor="black")
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("Confidence")
+    ax.set_ylabel("Detection count")
+    ax.set_title("Confidence Histogram on Evaluation Samples")
+    ax.legend()
+    ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
     fig.savefig(chart_path, dpi=160)
     plt.close(fig)
-    logger.info("Saved confidence bar chart: %s", chart_path)
+    logger.info("Saved confidence histogram chart: %s", chart_path)
 
 
 def default_sample_source(args: argparse.Namespace) -> Path:
     if args.sample_source:
         return Path(args.sample_source)
-    test = Path("data/bdd10k/images/test")
-    if test.exists():
-        return test
     val = Path("data/bdd10k/images/val")
     if val.exists():
         return val
@@ -621,21 +625,34 @@ def yolo_to_xyxy(values: list[float], width: int, height: int) -> list[float]:
 
 
 def ground_truth_label_path(image_path: Path) -> Path:
+    candidates: list[Path] = []
     text = str(image_path)
     if f"{os.sep}images{os.sep}" in text:
-        return Path(text.replace(f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}")).with_suffix(".txt")
+        candidates.append(Path(text.replace(f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}")).with_suffix(".txt"))
     parts = list(image_path.parts)
     if "images" in parts:
         idx = parts.index("images")
-        parts[idx] = "labels"
-        return Path(*parts).with_suffix(".txt")
-    return image_path.with_suffix(".txt")
+        split = parts[idx + 1] if idx + 1 < len(parts) else ""
+        root = Path(*parts[:idx]) if idx > 0 else Path(".")
+        if split:
+            candidates.append(root / "labels" / split / image_path.with_suffix(".txt").name)
+        for fallback_split in ("val", "train"):
+            candidates.append(root / "labels" / fallback_split / image_path.with_suffix(".txt").name)
+    candidates.append(image_path.with_suffix(".txt"))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def draw_ground_truth(image: Any, image_path: Path, names: dict[int, str], logger: logging.Logger) -> int:
     label_path = ground_truth_label_path(image_path)
     if not label_path.exists():
-        logger.info("Ground-truth label not found for sample image: %s", label_path)
+        logger.warning(
+            "Ground-truth label not found for sample image: %s. "
+            "Rerun: .venv/bin/python scripts/convert_bdd10k_to_yolo.py --data-root data/bdd10k and make sure val labels exist.",
+            label_path,
+        )
         return 0
     height, width = image.shape[:2]
     count = 0

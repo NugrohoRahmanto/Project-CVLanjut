@@ -62,15 +62,13 @@ data/bdd10k/
   images/
     train/
     val/
-    test/
   labels/
     train/
     val/
-    test/
   bdd10k.yaml
 ```
 
-Converter pada langkah berikutnya akan membuat `data/bdd10k/images/train`, `images/val`, dan `images/test` secara otomatis.
+Converter pada langkah berikutnya akan membuat `data/bdd10k/images/train` dan `images/val` secara otomatis.
 
 Cek lokasi file annotation JSON setelah unzip:
 
@@ -106,39 +104,33 @@ data/bdd10k/val
 data/bdd10k/test
 ```
 
-Karena split `test` dari Kaggle tidak memiliki annotation JSON, pipeline menyiapkan split Ultralytics seperti ini:
+Untuk pipeline saat ini, hanya split `train` dan `val` yang dipakai:
 
 ```text
-Ultralytics train: subset dari data/bdd10k/train
-Ultralytics val  : subset dari data/bdd10k/train untuk validasi saat training
-Ultralytics test : seluruh data/bdd10k/val untuk metrik performa akhir
+Ultralytics train: image yang namanya ada di bdd100k_labels_images_train.json
+Ultralytics val  : image yang namanya ada di bdd100k_labels_images_val.json
+Ultralytics test : tidak digunakan
 ```
 
-Path yang dipakai `data/bdd10k/bdd10k.yaml` tetap:
+Converter mencari file image berdasarkan nama dari JSON annotation di folder raw `data/bdd10k/train`, `data/bdd10k/val`, dan `data/bdd10k/test`. Data `val` tidak diambil dari train dan tidak masuk training; jika ada nama yang overlap, converter mengeluarkannya dari train.
+
+Path yang dipakai `data/bdd10k/bdd10k.yaml`:
 
 ```text
 data/bdd10k/images/train
 data/bdd10k/images/val
-data/bdd10k/images/test
 ```
 
-Jalankan converter mode otomatis. Command ini membuat split image, convert JSON ke YOLO label, serta menulis `bdd10k.yaml`:
+Jalankan converter mode otomatis. Command ini membuat link image train/val, convert JSON train/val ke YOLO label, serta menulis `bdd10k.yaml`:
 
 ```bash
 .venv/bin/python scripts/convert_bdd10k_to_yolo.py \
   --data-root data/bdd10k
 ```
 
-Default `--val-ratio` adalah `0.2`, artinya 20% dari original train dipakai sebagai validation. Jika ingin mengubah rasio:
-
-```bash
-.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
-  --data-root data/bdd10k \
-  --val-ratio 0.2 \
-  --seed 42
-```
-
 Converter mempertahankan 10 kelas BDD asli. Filtering ke known class dilakukan otomatis oleh runner di folder eksperimen.
+
+Jika converter melaporkan `No val labels were converted`, berarti tidak ada file image yang cocok dengan nama di `bdd100k_labels_images_val.json`. Perbaiki struktur dataset terlebih dahulu, karena pipeline ini mensyaratkan `val` memiliki ground truth.
 
 Jika ingin convert split manual, format ini tetap didukung:
 
@@ -164,7 +156,7 @@ Jika muncul error `Input JSON not found`, cek lokasi JSON sebenarnya:
 find data/bdd10k -type f -name '*.json' | sort
 ```
 
-Catatan: `data/bdd10k/images/test` bukan berasal dari folder raw `data/bdd10k/test`, tetapi dari raw `data/bdd10k/val` agar test akhir memiliki ground truth dan metrik performa bisa dihitung.
+Catatan: folder raw `data/bdd10k/test` tidak dipakai untuk training, metric, atau visual evaluation.
 
 ## 4. Cara Kerja Pipeline
 
@@ -300,17 +292,17 @@ bash run_train_yoloworld_bdd10k.sh \
   --experiment-name eval_yoloworld_bdd10k_finetune \
   --timestamp-output \
   --eval-only \
-  --eval-split test \
+  --eval-split val \
   --imgsz 640 \
   --batch-size 8 \
   --device 0 \
-  --sample-source data/bdd10k/images/test \
+  --sample-source data/bdd10k/images/val \
   --sample-count 24 \
   --zero-shot-unknown-model yolov8s-world.pt \
   --unknown-conf-thres 0.05
 ```
 
-`model.val()` menghitung metric Ultralytics pada split `test` secara default. Dalam pipeline ini, split `test` berasal dari raw BDD `val`, sehingga tetap memiliki ground truth. Gambar di `evaluation/images/` dibuat oleh dua branch: checkpoint fine-tuned untuk known class dan YOLO-World pretrained untuk unknown zero-shot.
+`model.val()` menghitung metric Ultralytics pada split `val` secara default. Data `val` tidak masuk training dan hanya dipakai untuk metric evaluation serta visual evaluation. Gambar di `evaluation/images/` dibuat oleh dua branch: checkpoint fine-tuned untuk known class dan YOLO-World pretrained untuk unknown zero-shot.
 
 Matikan visual sample jika hanya ingin metric:
 
@@ -436,8 +428,8 @@ metrics/
   metrics_summary.json
   evaluation.json
   final_metrics.csv
-  confidence_by_label.csv
-  confidence_by_label.png
+  confidence_histogram.csv
+  confidence_histogram.png
 evaluation/
   images/
   sample_predictions.json
@@ -448,9 +440,9 @@ predictions/
 predictions_unknown/
 ```
 
-`metrics/training_history.csv` berisi history training per epoch. `metrics/final_metrics.csv` berisi performa akhir. `metrics/confidence_by_label.png` adalah bar chart confidence rata-rata dari deteksi yang dijalankan pada evaluation/predict samples. `weights/best.pt` dan `weights/last.pt` menyimpan model terbaik dan checkpoint terakhir.
+`metrics/training_history.csv` berisi history training per epoch. `metrics/final_metrics.csv` berisi performa akhir. `metrics/confidence_histogram.png` adalah histogram confidence untuk deteksi known dan unknown. `weights/best.pt` dan `weights/last.pt` menyimpan model terbaik dan checkpoint terakhir.
 
-Jika ingin confidence chart dari seluruh test image, jalankan `predict-only` dengan `--source data/bdd10k/images/test`, atau naikkan `--sample-count` pada eval sampai mencakup jumlah gambar test yang ingin dianalisis.
+Jika ingin confidence chart dari seluruh val image, jalankan `predict-only` dengan `--source data/bdd10k/images/val`, atau naikkan `--sample-count` pada eval sampai mencakup jumlah gambar val yang ingin dianalisis.
 
 Log utama:
 
@@ -483,6 +475,13 @@ Notebook finished. elapsed_seconds=<detik> experiment_dir=<folder_run>
 ## 11. Troubleshooting
 
 Jika CUDA tidak tersedia tetapi `--device 0` dipakai, pipeline akan memberi error informatif. Gunakan GPU yang benar atau ubah ke `--device cpu` untuk test kecil.
+
+Jika panel kiri `Ground Truth` kosong pada eval val, kemungkinan label `data/bdd10k/labels/val/*.txt` belum dibuat atau tidak cocok dengan image val. Jalankan ulang converter:
+
+```bash
+.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
+  --data-root data/bdd10k
+```
 
 Jika bbox unknown tidak muncul dari checkpoint fine-tuned, gunakan branch zero-shot pretrained default:
 
