@@ -1,0 +1,23 @@
+[project]
+name = "cvlanjut-yoloworld-bdd10k"
+version = "0.1.0"
+description = "Ultralytics YOLO-World BDD10K prompt-configured training pipeline"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+  "ultralytics",
+  "torch",
+  "torchvision",
+  "numpy",
+  "pandas",
+  "opencv-python",
+  "matplotlib",
+  "pyyaml",
+  "tqdm",
+  "notebook",
+  "nbconvert",
+  "papermill",
+]
+
+[tool.uv]
+package = false

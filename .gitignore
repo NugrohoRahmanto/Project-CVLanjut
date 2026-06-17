@@ -1,0 +1,55 @@
+# Python/runtime
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Logs
+*.log
+training.log
+nohup.out
+
+# Local datasets and generated labels
+data/*
+!data/bdd10k/
+data/bdd10k/*
+!data/bdd10k/bdd10k.yaml
+
+# Experiment outputs
+runs/
+outputs/
+outpus/
+
+# Model weights and exports
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.tflite
+*.mlpackage
+*.pb
+*.bin
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,12 @@
+ultralytics
+torch
+torchvision
+numpy
+pandas
+opencv-python
+matplotlib
+pyyaml
+tqdm
+notebook
+nbconvert
+papermill
