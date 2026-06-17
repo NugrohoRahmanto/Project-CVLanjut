@@ -44,13 +44,12 @@ Project memakai Python `>=3.10,<3.11`. Setelah `uv sync`, runner bash otomatis m
 
 ## 2. Download Dataset
 
-Download BDD10K dari Kaggle, unzip ke `data/bdd10k`, lalu hapus zip:
+Download BDD10K dari Kaggle, unzip langsung ke folder `data`, lalu hapus zip.
 
 ```bash
-mkdir -p data/bdd10k
 curl -L -o ./bdd10k.zip \
   https://www.kaggle.com/api/v1/datasets/download/aadityadamle/bdd10k
-unzip -q ./bdd10k.zip -d data/bdd10k
+unzip -q ./bdd10k.zip -d data
 rm -f ./bdd10k.zip
 ```
 
@@ -71,7 +70,7 @@ data/bdd10k/
   bdd10k.yaml
 ```
 
-Jika hasil unzip memiliki struktur seperti `data/bdd10k/train`, `data/bdd10k/val`, dan `data/bdd10k/test`, pindahkan atau symlink ke `data/bdd10k/images/<split>`.
+Converter pada langkah berikutnya akan membuat `data/bdd10k/images/train`, `images/val`, dan `images/test` secara otomatis.
 
 Cek lokasi file annotation JSON setelah unzip:
 
@@ -99,28 +98,53 @@ names:
 
 ## 3. Convert dan Check Dataset
 
-Jika annotation belum berupa YOLO `.txt`, convert dari JSON BDD:
+Setelah unzip dengan command download di atas, dataset Kaggle berisi image mentah di:
+
+```text
+data/bdd10k/train
+data/bdd10k/val
+data/bdd10k/test
+```
+
+Karena split `test` dari Kaggle tidak memiliki annotation JSON, pipeline menyiapkan split Ultralytics seperti ini:
+
+```text
+Ultralytics train: subset dari data/bdd10k/train
+Ultralytics val  : subset dari data/bdd10k/train untuk validasi saat training
+Ultralytics test : seluruh data/bdd10k/val untuk metrik performa akhir
+```
+
+Path yang dipakai `data/bdd10k/bdd10k.yaml` tetap:
+
+```text
+data/bdd10k/images/train
+data/bdd10k/images/val
+data/bdd10k/images/test
+```
+
+Jalankan converter mode otomatis. Command ini membuat split image, convert JSON ke YOLO label, serta menulis `bdd10k.yaml`:
+
+```bash
+.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
+  --data-root data/bdd10k
+```
+
+Default `--val-ratio` adalah `0.2`, artinya 20% dari original train dipakai sebagai validation. Jika ingin mengubah rasio:
+
+```bash
+.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
+  --data-root data/bdd10k \
+  --val-ratio 0.2 \
+  --seed 42
+```
+
+Converter mempertahankan 10 kelas BDD asli. Filtering ke known class dilakukan otomatis oleh runner di folder eksperimen.
+
+Jika ingin convert split manual, format ini tetap didukung:
 
 ```bash
 .venv/bin/python scripts/convert_bdd10k_to_yolo.py \
   --input-json data/bdd10k/labels/bdd100k_labels_images_train.json \
-  --image-dir data/bdd10k/images/train \
-  --output-label-dir data/bdd10k/labels/train
-```
-
-Ulangi untuk `val` dan `test` jika JSON tersedia. Converter mempertahankan 10 kelas BDD asli. Filtering ke known class dilakukan otomatis oleh runner di folder eksperimen.
-
-Jika muncul error `Input JSON not found`, cari lokasi JSON sebenarnya:
-
-```bash
-find data/bdd10k -type f -name '*train*.json' | sort
-```
-
-Lalu ulangi convert dengan path yang benar, misalnya:
-
-```bash
-.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
-  --input-json data/bdd10k/<folder-hasil-unzip>/labels/bdd100k_labels_images_train.json \
   --image-dir data/bdd10k/images/train \
   --output-label-dir data/bdd10k/labels/train
 ```
@@ -134,7 +158,13 @@ Check dataset:
 
 Checker melaporkan folder image/label, jumlah image, missing label, empty label, invalid class id, invalid bbox, dan distribusi annotation per class.
 
-Catatan: runner juga mencoba auto-convert JSON BDD ke YOLO label jika `labels/<split>/*.txt` belum tersedia. Jika validation annotation kosong karena nama JSON dan image tidak cocok, runner memakai fallback agar dataloader Ultralytics tidak gagal.
+Jika muncul error `Input JSON not found`, cek lokasi JSON sebenarnya:
+
+```bash
+find data/bdd10k -type f -name '*.json' | sort
+```
+
+Catatan: `data/bdd10k/images/test` bukan berasal dari folder raw `data/bdd10k/test`, tetapi dari raw `data/bdd10k/val` agar test akhir memiliki ground truth dan metrik performa bisa dihitung.
 
 ## 4. Cara Kerja Pipeline
 
@@ -270,16 +300,17 @@ bash run_train_yoloworld_bdd10k.sh \
   --experiment-name eval_yoloworld_bdd10k_finetune \
   --timestamp-output \
   --eval-only \
+  --eval-split test \
   --imgsz 640 \
   --batch-size 8 \
   --device 0 \
-  --sample-source data/bdd10k/images/train \
+  --sample-source data/bdd10k/images/test \
   --sample-count 24 \
   --zero-shot-unknown-model yolov8s-world.pt \
   --unknown-conf-thres 0.05
 ```
 
-`model.val()` tetap menghitung metric Ultralytics berdasarkan dataset/yaml. Gambar di `eval_samples/` dibuat oleh dua branch: checkpoint fine-tuned untuk known class dan YOLO-World pretrained untuk unknown zero-shot.
+`model.val()` menghitung metric Ultralytics pada split `test` secara default. Dalam pipeline ini, split `test` berasal dari raw BDD `val`, sehingga tetap memiliki ground truth. Gambar di `evaluation/images/` dibuat oleh dua branch: checkpoint fine-tuned untuk known class dan YOLO-World pretrained untuk unknown zero-shot.
 
 Matikan visual sample jika hanya ingin metric:
 
@@ -392,26 +423,41 @@ runs/yoloworld_bdd10k/<experiment-name>/
 Isi penting:
 
 ```text
-train.log
-console.log
-args.json
-config_used.yaml
-run_summary.json
+logs/
+  train.log
+  console.log
+configs/
+  args.json
+  config_used.yaml
+  run_summary.json
+  ultralytics_args.yaml
+metrics/
+  training_history.csv
+  metrics_summary.json
+  evaluation.json
+  final_metrics.csv
+  confidence_by_label.csv
+  confidence_by_label.png
+evaluation/
+  images/
+  sample_predictions.json
 weights/
-results.csv
-metrics_summary.json
-evaluation.json
-eval_samples/
+  best.pt
+  last.pt
 predictions/
 predictions_unknown/
 ```
+
+`metrics/training_history.csv` berisi history training per epoch. `metrics/final_metrics.csv` berisi performa akhir. `metrics/confidence_by_label.png` adalah bar chart confidence rata-rata dari deteksi yang dijalankan pada evaluation/predict samples. `weights/best.pt` dan `weights/last.pt` menyimpan model terbaik dan checkpoint terakhir.
+
+Jika ingin confidence chart dari seluruh test image, jalankan `predict-only` dengan `--source data/bdd10k/images/test`, atau naikkan `--sample-count` pada eval sampai mencakup jumlah gambar test yang ingin dianalisis.
 
 Log utama:
 
 ```text
 training.log
-runs/yoloworld_bdd10k/<experiment-name>/train.log
-runs/yoloworld_bdd10k/<experiment-name>/console.log
+runs/yoloworld_bdd10k/<experiment-name>/logs/train.log
+runs/yoloworld_bdd10k/<experiment-name>/logs/console.log
 ```
 
 `training.log` di root selalu ditimpa setiap run baru. `train.log` menyimpan logger pipeline permanen per eksperimen. `console.log` menyimpan stdout/stderr Ultralytics.

@@ -92,6 +92,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--conf-thres", type=float, default=0.25)
     parser.add_argument("--iou-thres", type=float, default=0.7)
     parser.add_argument("--eval-only", action="store_true")
+    parser.add_argument("--eval-split", choices=("train", "val", "test"), default="test", help="Dataset split used by --eval-only. Default test uses original BDD val after conversion.")
     parser.add_argument("--predict-only", action="store_true")
     parser.add_argument("--source", default="")
     parser.add_argument("--save-eval-samples", action=argparse.BooleanOptionalAction, default=True, help="Save sample inference visualizations after train/eval.")
@@ -111,7 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
 def setup_logger(experiment_dir: Path) -> logging.Logger:
     experiment_dir.mkdir(parents=True, exist_ok=True)
     root_log = Path("training.log")
-    exp_log = experiment_dir / "train.log"
+    exp_log = experiment_dir / "logs" / "train.log"
+    exp_log.parent.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(filename)s/%(funcName)s | %(message)s")
     logger = logging.getLogger("yoloworld_bdd10k")
     logger.setLevel(logging.INFO)
@@ -125,7 +127,8 @@ def setup_logger(experiment_dir: Path) -> logging.Logger:
 
 @contextlib.contextmanager
 def redirect_console_to_file(experiment_dir: Path):
-    console_log = experiment_dir / "console.log"
+    console_log = experiment_dir / "logs" / "console.log"
+    console_log.parent.mkdir(parents=True, exist_ok=True)
     with console_log.open("a", encoding="utf-8") as log_file:
         with contextlib.redirect_stdout(log_file), contextlib.redirect_stderr(log_file):
             yield console_log
@@ -330,8 +333,9 @@ def prepare_known_dataset(args: argparse.Namespace, experiment_dir: Path, logger
         return data_yaml
 
     out_root = experiment_dir / "dataset_known"
-    yaml_out = experiment_dir / "config_used.yaml"
+    yaml_out = experiment_dir / "configs" / "config_used.yaml"
     out_root.mkdir(parents=True, exist_ok=True)
+    yaml_out.parent.mkdir(parents=True, exist_ok=True)
     for split in ("train", "val", "test"):
         image_dir = resolve_split_path(dataset_root, config.get(split))
         if image_dir is None:
@@ -370,11 +374,12 @@ def prepare_known_dataset(args: argparse.Namespace, experiment_dir: Path, logger
             "No known-class training annotations were found after filtering. "
             "Check that data/bdd10k/labels/train/*.txt exists or that bdd100k_labels_images_train.json matches data/bdd10k/images/train."
         )
-    val_split = "images/val"
     if val_annotation_count == 0:
-        val_split = "images/train"
-        logger.warning("No known-class validation annotations found. Falling back val split to images/train for Ultralytics validation.")
-    filtered_config = {"path": str(out_root.resolve()), "train": "images/train", "val": val_split, "test": "images/test", "names": {i: n for i, n in enumerate(known)}}
+        logger.warning(
+            "No known-class validation annotations found in images/val. "
+            "Validation/eval will still use images/val; run dataset conversion/check if this is unexpected."
+        )
+    filtered_config = {"path": str(out_root.resolve()), "train": "images/train", "val": "images/val", "test": "images/test", "names": {i: n for i, n in enumerate(known)}}
     yaml_out.write_text(yaml.safe_dump(filtered_config, sort_keys=False), encoding="utf-8")
     logger.info("Created known-class dataset: %s", yaml_out)
     logger.info("Known classes: %s", known)
@@ -406,14 +411,34 @@ def to_serializable(obj: Any) -> Any:
 
 
 def copy_training_artifacts(save_dir: Path | None, experiment_dir: Path, logger: logging.Logger) -> Path:
+    metrics_dir = experiment_dir / "metrics"
+    configs_dir = experiment_dir / "configs"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    configs_dir.mkdir(parents=True, exist_ok=True)
     if save_dir is None or not save_dir.exists() or save_dir.resolve() == experiment_dir.resolve():
+        root_results = experiment_dir / "results.csv"
+        if root_results.exists():
+            target = metrics_dir / "training_history.csv"
+            shutil.copy2(root_results, target)
+            logger.info("Copied training history: %s -> %s", root_results, target)
+            root_results.unlink()
+        root_args = experiment_dir / "args.yaml"
+        if root_args.exists():
+            target = configs_dir / "ultralytics_args.yaml"
+            shutil.copy2(root_args, target)
+            logger.info("Copied Ultralytics args: %s -> %s", root_args, target)
+            root_args.unlink()
         return experiment_dir
     logger.info("Ultralytics save_dir differs from experiment_dir: %s", save_dir)
-    for name in ("results.csv", "args.yaml"):
+    artifact_targets = {
+        "results.csv": metrics_dir / "training_history.csv",
+        "args.yaml": configs_dir / "ultralytics_args.yaml",
+    }
+    for name, target in artifact_targets.items():
         source = save_dir / name
         if source.exists():
-            shutil.copy2(source, experiment_dir / name)
-            logger.info("Copied training artifact: %s -> %s", source, experiment_dir / name)
+            shutil.copy2(source, target)
+            logger.info("Copied training artifact: %s -> %s", source, target)
     source_weights = save_dir / "weights"
     target_weights = experiment_dir / "weights"
     if source_weights.exists():
@@ -430,7 +455,12 @@ def parse_float(value: Any) -> float | None:
 
 
 def log_epoch_metrics(experiment_dir: Path, logger: logging.Logger) -> dict[str, Any] | None:
-    results_csv = experiment_dir / "results.csv"
+    results_csv = experiment_dir / "metrics" / "training_history.csv"
+    if not results_csv.exists():
+        legacy_results = experiment_dir / "results.csv"
+        if legacy_results.exists():
+            results_csv.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy_results, results_csv)
     if not results_csv.exists():
         logger.warning("Epoch metrics results.csv not found at %s. Full Ultralytics epoch output is in console.log.", results_csv)
         return None
@@ -468,14 +498,91 @@ def log_epoch_metrics(experiment_dir: Path, logger: logging.Logger) -> dict[str,
         "final_epoch": final,
         "best_map50_95_epoch": best_map_row,
     }
-    save_json(experiment_dir / "metrics_summary.json", summary)
-    logger.info("Saved metrics summary: %s", experiment_dir / "metrics_summary.json")
+    save_json(experiment_dir / "metrics" / "metrics_summary.json", summary)
+    logger.info("Saved metrics summary: %s", experiment_dir / "metrics" / "metrics_summary.json")
     return summary
+
+
+def save_metrics_csv(path: Path, metrics: Any, logger: logging.Logger) -> None:
+    data = to_serializable(metrics)
+    if isinstance(data, dict):
+        rows = [{"metric": key, "value": value} for key, value in data.items()]
+    else:
+        rows = [{"metric": "result", "value": data}]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["metric", "value"])
+        writer.writeheader()
+        writer.writerows(rows)
+    logger.info("Saved final metrics csv: %s", path)
+
+
+def save_confidence_artifacts(rows: list[dict[str, Any]], experiment_dir: Path, logger: logging.Logger) -> None:
+    metrics_dir = experiment_dir / "metrics"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = metrics_dir / "confidence_by_label.csv"
+    chart_path = metrics_dir / "confidence_by_label.png"
+    grouped: dict[str, list[float]] = {}
+    for row in rows:
+        label = str(row.get("final_label") or row.get("prompt_label") or "unknown")
+        try:
+            confidence = float(row.get("confidence"))
+        except (TypeError, ValueError):
+            continue
+        grouped.setdefault(label, []).append(confidence)
+
+    with csv_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["label", "count", "mean_confidence", "min_confidence", "max_confidence"])
+        writer.writeheader()
+        for label in sorted(grouped):
+            values = grouped[label]
+            writer.writerow(
+                {
+                    "label": label,
+                    "count": len(values),
+                    "mean_confidence": f"{sum(values) / len(values):.6f}",
+                    "min_confidence": f"{min(values):.6f}",
+                    "max_confidence": f"{max(values):.6f}",
+                }
+            )
+    logger.info("Saved confidence summary csv: %s", csv_path)
+
+    if not grouped:
+        logger.warning("No detections available for confidence chart.")
+        return
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        logger.warning("Could not import matplotlib for confidence chart: %s", exc)
+        return
+
+    labels = sorted(grouped)
+    means = [sum(grouped[label]) / len(grouped[label]) for label in labels]
+    counts = [len(grouped[label]) for label in labels]
+    width = max(8, min(18, len(labels) * 1.6))
+    fig, ax = plt.subplots(figsize=(width, 5))
+    bars = ax.bar(labels, means, color=["#d62728" if label == UNKNOWN_OBJECT_LABEL else "#2ca02c" for label in labels])
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Mean confidence")
+    ax.set_title("Detection Confidence on Evaluation Samples")
+    ax.tick_params(axis="x", rotation=30)
+    for bar, count in zip(bars, counts):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"n={count}", ha="center", va="bottom", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(chart_path, dpi=160)
+    plt.close(fig)
+    logger.info("Saved confidence bar chart: %s", chart_path)
 
 
 def default_sample_source(args: argparse.Namespace) -> Path:
     if args.sample_source:
         return Path(args.sample_source)
+    test = Path("data/bdd10k/images/test")
+    if test.exists():
+        return test
     val = Path("data/bdd10k/images/val")
     if val.exists():
         return val
@@ -571,7 +678,8 @@ def save_sample_visualizations(model: Any, args: argparse.Namespace, experiment_
         logger.warning("No sample images found for visualization source=%s", source)
         return []
 
-    output_dir = experiment_dir / "eval_samples"
+    evaluation_dir = experiment_dir / "evaluation"
+    output_dir = evaluation_dir / "images"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     known = parse_csv(args.known_classes)
@@ -692,8 +800,8 @@ def save_sample_visualizations(model: Any, args: argparse.Namespace, experiment_
             len(image_rows),
             sum(1 for row in image_rows if row["is_unknown"]),
         )
-    save_json(output_dir / "sample_predictions.json", rows)
-    logger.info("Sample inference finished: images=%s detections=%s json=%s", len(images), len(rows), output_dir / "sample_predictions.json")
+    save_json(evaluation_dir / "sample_predictions.json", rows)
+    logger.info("Sample inference finished: images=%s detections=%s json=%s", len(images), len(rows), evaluation_dir / "sample_predictions.json")
     return rows
 
 
@@ -1009,7 +1117,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             ensure_model_reference(args.model)
             versions = collect_versions()
             logger.info("Library versions: %s", versions)
-            save_json(experiment_dir / "args.json", {"args": vars(args), "versions": versions})
+            save_json(experiment_dir / "configs" / "args.json", {"args": vars(args), "versions": versions})
 
             from ultralytics import YOLOWorld
 
@@ -1067,20 +1175,23 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                     results["prediction_postprocessed"] = postprocess_dual_prediction_results(pred, unknown_pred, args, experiment_dir / "predictions", logger)
                 else:
                     results["prediction_postprocessed"] = postprocess_prediction_results(pred, args, experiment_dir / "predictions", logger)
+                save_confidence_artifacts(results["prediction_postprocessed"], experiment_dir, logger)
                 logger.info("Prediction output: %s", experiment_dir / "predictions")
                 logger.info("Stage finished: inference complete")
             elif args.eval_only:
-                logger.info("Stage: evaluation start")
+                logger.info("Stage: evaluation start split=%s", args.eval_split)
                 set_world_classes(model, args, logger, include_unknown=True)
-                metrics = model.val(data=str(data_yaml), imgsz=args.imgsz, batch=args.batch_size, conf=args.conf_thres, iou=args.iou_thres, device=args.device)
+                metrics = model.val(data=str(data_yaml), split=args.eval_split, imgsz=args.imgsz, batch=args.batch_size, conf=args.conf_thres, iou=args.iou_thres, device=args.device)
                 results["evaluation"] = to_serializable(metrics)
-                save_json(experiment_dir / "evaluation.json", results["evaluation"])
+                save_json(experiment_dir / "metrics" / "evaluation.json", results["evaluation"])
+                save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", results["evaluation"], logger)
                 logger.info("Evaluation metrics: %s", results["evaluation"])
                 logger.info("Stage: sample visual evaluation start")
                 logger.info("Reloading YOLO-World checkpoint for sample inference after validation.")
                 sample_model = YOLOWorld(args.model)
                 attach_progress_callbacks(sample_model, args, logger)
                 results["sample_visualizations"] = save_sample_visualizations(sample_model, args, experiment_dir, logger)
+                save_confidence_artifacts(results["sample_visualizations"], experiment_dir, logger)
                 logger.info("Stage finished: evaluation complete")
             else:
                 logger.info("Stage: training setup")
@@ -1121,12 +1232,15 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 save_dir = Path(save_dir_value) if save_dir_value else None
                 copy_training_artifacts(save_dir, experiment_dir, logger)
                 results["metrics_summary"] = log_epoch_metrics(experiment_dir, logger)
+                if results["metrics_summary"]:
+                    save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", results["metrics_summary"].get("final_epoch"), logger)
                 best = experiment_dir / "weights" / "best.pt"
                 last = experiment_dir / "weights" / "last.pt"
                 logger.info("Checkpoint best: %s exists=%s", best, best.exists())
                 logger.info("Checkpoint last: %s exists=%s", last, last.exists())
                 logger.info("Stage: sample visual evaluation start")
                 results["sample_visualizations"] = save_sample_visualizations(model, args, experiment_dir, logger)
+                save_confidence_artifacts(results["sample_visualizations"], experiment_dir, logger)
                 logger.info("Stage finished: training complete")
 
             if args.export:
@@ -1135,7 +1249,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 results["export"] = to_serializable(export_result)
                 logger.info("Export result: %s", results["export"])
                 logger.info("Stage finished: export complete")
-            save_json(experiment_dir / "run_summary.json", results)
+            save_json(experiment_dir / "configs" / "run_summary.json", results)
             elapsed_seconds = time.perf_counter() - start_time
             logger.info("Notebook finished. elapsed_seconds=%.3f experiment_dir=%s", elapsed_seconds, experiment_dir)
             return {"experiment_dir": str(experiment_dir), "results": results}
