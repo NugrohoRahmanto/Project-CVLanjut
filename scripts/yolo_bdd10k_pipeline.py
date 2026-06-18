@@ -76,17 +76,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def setup_logger(experiment_dir: Path) -> logging.Logger:
     (experiment_dir / "logs").mkdir(parents=True, exist_ok=True)
+    root_log = Path("training.log")
+    experiment_log = experiment_dir / "logs" / "train.log"
     fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(filename)s/%(funcName)s | %(message)s")
     logger = logging.getLogger("yolo_bdd10k")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     logger.propagate = False
     for handler in (
-        logging.FileHandler("training.log", mode="w", encoding="utf-8"),
-        logging.FileHandler(experiment_dir / "logs" / "train.log", mode="a", encoding="utf-8"),
+        logging.FileHandler(root_log, mode="w", encoding="utf-8"),
+        logging.FileHandler(experiment_log, mode="a", encoding="utf-8"),
     ):
         handler.setFormatter(fmt)
         logger.addHandler(handler)
+    logger.info("Root training log: %s", root_log.resolve())
+    logger.info("Experiment training log: %s", experiment_log.resolve())
     return logger
 
 
@@ -453,6 +457,164 @@ def save_confidence_histogram(rows: list[dict[str, Any]], experiment_dir: Path, 
         logger.warning("Could not save confidence histogram image: %s", exc)
 
 
+def format_seconds(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def progress_interval(total: int | None) -> int:
+    if not total or total <= 0:
+        return 1
+    return max(1, total // 20)
+
+
+def attach_progress_callbacks(model: Any, args: argparse.Namespace, logger: logging.Logger) -> None:
+    state: dict[str, Any] = {
+        "train_start": None,
+        "epoch_start": None,
+        "epoch_batch": 0,
+        "train_batches": None,
+        "val_start": None,
+        "val_batch": 0,
+        "val_batches": None,
+        "predict_start": None,
+        "predict_batch": 0,
+        "predict_batches": None,
+    }
+
+    def on_pretrain_routine_start(trainer):
+        logger.info("Stage: preparing YOLO model, optimizer, dataloaders, and training pipeline")
+
+    def on_train_start(trainer):
+        state["train_start"] = time.perf_counter()
+        state["train_batches"] = len(getattr(trainer, "train_loader", []) or [])
+        logger.info(
+            "Training start: epochs=%s start_epoch=%s train_batches_per_epoch=%s batch_size=%s imgsz=%s device=%s",
+            getattr(trainer, "epochs", args.epochs),
+            getattr(trainer, "start_epoch", 0) + 1,
+            state["train_batches"],
+            getattr(trainer, "batch_size", args.batch_size),
+            getattr(getattr(trainer, "args", None), "imgsz", args.imgsz),
+            getattr(trainer, "device", args.device),
+        )
+
+    def on_train_epoch_start(trainer):
+        state["epoch_start"] = time.perf_counter()
+        state["epoch_batch"] = 0
+        logger.info("Training epoch start: %s/%s", getattr(trainer, "epoch", 0) + 1, getattr(trainer, "epochs", args.epochs))
+
+    def on_train_batch_end(trainer):
+        total_batches = state.get("train_batches") or len(getattr(trainer, "train_loader", []) or [])
+        state["epoch_batch"] = int(state.get("epoch_batch", 0)) + 1
+        batch = state["epoch_batch"]
+        interval = progress_interval(total_batches)
+        if batch != 1 and batch != total_batches and batch % interval:
+            return
+        elapsed = time.perf_counter() - (state.get("epoch_start") or time.perf_counter())
+        eta = (elapsed / batch) * max(total_batches - batch, 0) if batch and total_batches else None
+        losses = getattr(trainer, "tloss", None)
+        loss_text = str(losses.detach().cpu().tolist()) if hasattr(losses, "detach") else str(losses)
+        logger.info(
+            "Training progress: epoch=%s/%s batch=%s/%s elapsed=%s eta=%s avg_loss=%s",
+            getattr(trainer, "epoch", 0) + 1,
+            getattr(trainer, "epochs", args.epochs),
+            batch,
+            total_batches,
+            format_seconds(elapsed),
+            format_seconds(eta),
+            loss_text,
+        )
+
+    def on_train_epoch_end(trainer):
+        elapsed = time.perf_counter() - (state.get("epoch_start") or time.perf_counter())
+        logger.info(
+            "Training epoch finished: %s/%s elapsed=%s",
+            getattr(trainer, "epoch", 0) + 1,
+            getattr(trainer, "epochs", args.epochs),
+            format_seconds(elapsed),
+        )
+
+    def on_train_end(trainer):
+        elapsed = time.perf_counter() - (state.get("train_start") or time.perf_counter())
+        logger.info("Training finished: elapsed=%s save_dir=%s", format_seconds(elapsed), getattr(trainer, "save_dir", "unknown"))
+
+    def on_val_start(validator):
+        state["val_start"] = time.perf_counter()
+        state["val_batch"] = 0
+        dataloader = getattr(validator, "dataloader", None)
+        state["val_batches"] = len(dataloader) if dataloader is not None else None
+        logger.info("Evaluation/validation start: batches=%s", state["val_batches"])
+
+    def on_val_batch_end(validator):
+        total_batches = state.get("val_batches")
+        state["val_batch"] = int(state.get("val_batch", 0)) + 1
+        batch = state["val_batch"]
+        if not total_batches:
+            logger.info("Evaluation progress: batch=%s", batch)
+            return
+        interval = progress_interval(total_batches)
+        if batch != 1 and batch != total_batches and batch % interval:
+            return
+        elapsed = time.perf_counter() - (state.get("val_start") or time.perf_counter())
+        eta = (elapsed / batch) * max(total_batches - batch, 0) if batch else None
+        logger.info("Evaluation progress: batch=%s/%s elapsed=%s eta=%s", batch, total_batches, format_seconds(elapsed), format_seconds(eta))
+
+    def on_val_end(validator):
+        elapsed = time.perf_counter() - (state.get("val_start") or time.perf_counter())
+        logger.info("Evaluation finished: elapsed=%s metrics=%s", format_seconds(elapsed), to_serializable(getattr(validator, "metrics", None)))
+
+    def on_predict_start(predictor):
+        state["predict_start"] = time.perf_counter()
+        state["predict_batch"] = 0
+        dataset = getattr(predictor, "dataset", None)
+        state["predict_batches"] = len(dataset) if dataset is not None and hasattr(dataset, "__len__") else None
+        logger.info("Inference start: source=%s batches=%s", getattr(getattr(predictor, "args", None), "source", args.source), state["predict_batches"])
+
+    def on_predict_batch_end(predictor):
+        total_batches = state.get("predict_batches")
+        state["predict_batch"] = int(state.get("predict_batch", 0)) + 1
+        batch = state["predict_batch"]
+        if not total_batches:
+            logger.info("Inference progress: batch=%s", batch)
+            return
+        interval = progress_interval(total_batches)
+        if batch != 1 and batch != total_batches and batch % interval:
+            return
+        elapsed = time.perf_counter() - (state.get("predict_start") or time.perf_counter())
+        eta = (elapsed / batch) * max(total_batches - batch, 0) if batch else None
+        logger.info("Inference progress: batch=%s/%s elapsed=%s eta=%s", batch, total_batches, format_seconds(elapsed), format_seconds(eta))
+
+    def on_predict_end(predictor):
+        elapsed = time.perf_counter() - (state.get("predict_start") or time.perf_counter())
+        logger.info("Inference finished: elapsed=%s save_dir=%s", format_seconds(elapsed), getattr(predictor, "save_dir", "unknown"))
+
+    callbacks = {
+        "on_pretrain_routine_start": on_pretrain_routine_start,
+        "on_train_start": on_train_start,
+        "on_train_epoch_start": on_train_epoch_start,
+        "on_train_batch_end": on_train_batch_end,
+        "on_train_epoch_end": on_train_epoch_end,
+        "on_train_end": on_train_end,
+        "on_val_start": on_val_start,
+        "on_val_batch_end": on_val_batch_end,
+        "on_val_end": on_val_end,
+        "on_predict_start": on_predict_start,
+        "on_predict_batch_end": on_predict_batch_end,
+        "on_predict_end": on_predict_end,
+    }
+    for event, callback in callbacks.items():
+        if hasattr(model, "add_callback"):
+            model.add_callback(event, callback)
+
+
 def save_sample_visualizations(model: Any, args: argparse.Namespace, experiment_dir: Path, data: dict[str, Any], logger: logging.Logger) -> list[dict[str, Any]]:
     if not args.save_eval_samples:
         return []
@@ -557,6 +719,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             from ultralytics import YOLO
 
             model = YOLO(args.model)
+            attach_progress_callbacks(model, args, logger)
             if args.predict_only:
                 if not args.source:
                     raise ValueError("--predict-only requires --source")
