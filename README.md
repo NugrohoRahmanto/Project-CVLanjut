@@ -367,7 +367,106 @@ fine_tuned_known
 pretrained_zero_shot_unknown
 ```
 
-## 8. Notebook
+## 8. YOLO Biasa
+
+Pipeline YOLO biasa tersedia untuk baseline supervised detector tanpa prompt dan tanpa unknown zero-shot. Dataset tetap memakai `data/bdd10k/bdd10k.yaml`, training memakai split `train`, sedangkan metric dan visual evaluation memakai split `val`.
+
+Runner:
+
+```text
+run_train_yolo_bdd10k.sh
+scripts/run_train_yolo_bdd10k.py
+scripts/yolo_bdd10k_pipeline.py
+```
+
+Training tanpa flag:
+
+```bash
+bash run_train_yolo_bdd10k.sh
+```
+
+Training dengan flag:
+
+```bash
+bash run_train_yolo_bdd10k.sh \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model yolov8s.pt \
+  --output-dir runs/yolo_bdd10k \
+  --experiment-name yolo_bdd10k_finetune \
+  --timestamp-output \
+  --epochs 50 \
+  --batch-size 16 \
+  --imgsz 640 \
+  --lr0 1e-4 \
+  --device 0 \
+  --workers 8 \
+  --amp
+```
+
+Smoke test GPU:
+
+```bash
+bash run_train_yolo_bdd10k.sh \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model yolov8n.pt \
+  --output-dir runs/yolo_bdd10k \
+  --experiment-name smoke_yolo_bdd10k \
+  --timestamp-output \
+  --epochs 1 \
+  --batch-size 2 \
+  --imgsz 320 \
+  --workers 0 \
+  --device 0 \
+  --amp \
+  --patience 1
+```
+
+Eval-only:
+
+```bash
+bash run_train_yolo_bdd10k.sh \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model runs/yolo_bdd10k/<nama-run-training>/weights/best.pt \
+  --output-dir runs/yolo_bdd10k \
+  --experiment-name eval_yolo_bdd10k_finetune \
+  --timestamp-output \
+  --eval-only \
+  --eval-split val \
+  --imgsz 640 \
+  --batch-size 16 \
+  --device 0 \
+  --sample-source data/bdd10k/images/val \
+  --sample-count 24
+```
+
+Predict-only:
+
+```bash
+bash run_train_yolo_bdd10k.sh \
+  --model runs/yolo_bdd10k/<nama-run-training>/weights/best.pt \
+  --output-dir runs/yolo_bdd10k \
+  --experiment-name predict_yolo_bdd10k \
+  --timestamp-output \
+  --predict-only \
+  --source data/bdd10k/images/val \
+  --conf-thres 0.25 \
+  --iou-thres 0.7 \
+  --device 0
+```
+
+Output YOLO biasa:
+
+```text
+runs/yolo_bdd10k/<experiment-name>/
+  configs/
+  evaluation/
+  logs/
+  metrics/
+  predictions/
+  weights/
+```
+
+## 9. Notebook
 
 Notebook utama:
 
@@ -390,7 +489,7 @@ Atau memakai papermill:
 papermill notebooks/train_yoloworld_bdd10k.ipynb notebooks/executed_train_yoloworld_bdd10k.ipynb
 ```
 
-## 9. Export
+## 10. Export
 
 Export model mengikuti format yang didukung Ultralytics, misalnya `onnx`, `torchscript`, atau `openvino`.
 
@@ -404,7 +503,7 @@ bash run_train_yoloworld_bdd10k.sh \
   --device 0
 ```
 
-## 10. Output dan Log
+## 11. Output dan Log
 
 Setiap run disimpan di:
 
@@ -472,7 +571,7 @@ Log mencatat command, parsed arguments, dataset yaml, model weight, output dir, 
 Notebook finished. elapsed_seconds=<detik> experiment_dir=<folder_run>
 ```
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 Jika CUDA tidak tersedia tetapi `--device 0` dipakai, pipeline akan memberi error informatif. Gunakan GPU yang benar atau ubah ke `--device cpu` untuk test kecil.
 
