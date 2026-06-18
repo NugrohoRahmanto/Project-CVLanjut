@@ -27,9 +27,6 @@ run_one() {
     --batch-size "${batch_size}" \
     --imgsz 640 \
     --lr0 1e-4 \
-    --known-classes "pedestrian,rider,car,truck,bus,train,motorcycle,bicycle,traffic light,traffic sign" \
-    --unknown-prompts "" \
-    --no-use-zero-shot-unknown-model \
     --device 0 \
     --workers 8 \
     --amp

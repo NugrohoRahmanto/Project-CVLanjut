@@ -5,6 +5,7 @@ import contextlib
 import csv
 import json
 import logging
+import os
 import platform
 import random
 import shutil
@@ -19,10 +20,17 @@ import yaml
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+DEFAULT_TRAIN_CLASSES = "car,bus,truck"
 
 
 def timestamped_name(name: str) -> str:
     return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{name}"
+
+
+def parse_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default="runs/yolo_bdd10k")
     parser.add_argument("--experiment-name", default="yolo_bdd10k_finetune")
     parser.add_argument("--timestamp-output", action="store_true")
+    parser.add_argument("--train-classes", default=DEFAULT_TRAIN_CLASSES, help="Comma-separated class names used for supervised YOLO training.")
+    parser.add_argument("--skip-filtered-dataset", action="store_true", help="Use data yaml as-is without filtering --train-classes.")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--imgsz", type=int, default=640)
@@ -133,12 +143,99 @@ def resolve_split_path(data: dict[str, Any], split: str) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def label_path_for_image(image: Path, image_root: Path, label_root: Path) -> Path:
+    return label_root / image.relative_to(image_root).with_suffix(".txt")
+
+
 def find_images(path: Path) -> list[Path]:
     if path.is_file() and path.suffix.lower() in IMAGE_EXTS:
         return [path]
     if not path.exists():
         return []
     return sorted(p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTS)
+
+
+def count_yolo_annotations(label_dir: Path) -> int:
+    if not label_dir.exists():
+        return 0
+    total = 0
+    for label_file in label_dir.rglob("*.txt"):
+        total += sum(1 for line in label_file.read_text(encoding="utf-8").splitlines() if line.strip())
+    return total
+
+
+def prepare_train_class_dataset(args: argparse.Namespace, experiment_dir: Path, data: dict[str, Any], logger: logging.Logger) -> Path:
+    data_yaml = Path(args.data_yaml)
+    if args.skip_filtered_dataset:
+        logger.info("Using data yaml as-is because --skip-filtered-dataset was set: %s", data_yaml)
+        return data_yaml
+
+    train_classes = parse_csv(args.train_classes)
+    if not train_classes:
+        raise ValueError("--train-classes must contain at least one class name")
+
+    names = normalize_names(data.get("names"))
+    name_to_id = {name: idx for idx, name in names.items()}
+    missing = [name for name in train_classes if name not in name_to_id]
+    if missing:
+        raise ValueError(f"Train classes not present in yaml names: {missing}")
+    old_to_new = {name_to_id[name]: new_id for new_id, name in enumerate(train_classes)}
+
+    out_root = experiment_dir / "dataset_train_classes"
+    yaml_out = experiment_dir / "configs" / "config_used.yaml"
+    out_root.mkdir(parents=True, exist_ok=True)
+    yaml_out.parent.mkdir(parents=True, exist_ok=True)
+
+    for split in ("train", "val"):
+        image_dir = resolve_split_path(data, split)
+        label_dir = Path(str(image_dir).replace(f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"))
+        out_img_dir = out_root / "images" / split
+        out_label_dir = out_root / "labels" / split
+        out_img_dir.mkdir(parents=True, exist_ok=True)
+        out_label_dir.mkdir(parents=True, exist_ok=True)
+
+        for image in find_images(image_dir):
+            target_image = out_img_dir / image.relative_to(image_dir)
+            target_image.parent.mkdir(parents=True, exist_ok=True)
+            if not target_image.exists():
+                try:
+                    target_image.symlink_to(image.resolve())
+                except OSError:
+                    shutil.copy2(image, target_image)
+
+            source_label = label_path_for_image(image, image_dir, label_dir)
+            target_label = out_label_dir / image.relative_to(image_dir).with_suffix(".txt")
+            target_label.parent.mkdir(parents=True, exist_ok=True)
+            kept: list[str] = []
+            if source_label.exists():
+                for line in source_label.read_text(encoding="utf-8").splitlines():
+                    parts = line.split()
+                    if len(parts) < 5:
+                        continue
+                    old_id = int(float(parts[0]))
+                    if old_id in old_to_new:
+                        kept.append(" ".join([str(old_to_new[old_id]), *parts[1:5]]))
+            target_label.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+
+    train_count = count_yolo_annotations(out_root / "labels" / "train")
+    val_count = count_yolo_annotations(out_root / "labels" / "val")
+    if train_count == 0:
+        raise RuntimeError(f"No training annotations found after filtering --train-classes={train_classes}")
+    if val_count == 0:
+        raise RuntimeError(f"No validation annotations found after filtering --train-classes={train_classes}")
+
+    filtered_config = {
+        "path": str(out_root.resolve()),
+        "train": "images/train",
+        "val": "images/val",
+        "names": {idx: name for idx, name in enumerate(train_classes)},
+    }
+    yaml_out.write_text(yaml.safe_dump(filtered_config, sort_keys=False), encoding="utf-8")
+    logger.info("Created YOLO train-class dataset: %s", yaml_out)
+    logger.info("Train classes: %s", train_classes)
+    logger.info("Train-class train annotations: %s", train_count)
+    logger.info("Train-class val annotations: %s", val_count)
+    return yaml_out
 
 
 def set_seed(seed: int) -> None:
@@ -440,16 +537,22 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             names = normalize_names(data.get("names"))
             if "train" not in data or "val" not in data:
                 raise ValueError("Dataset yaml must contain train and val splits.")
+            data_yaml = prepare_train_class_dataset(args, experiment_dir, data, logger)
+            train_data = load_yaml(data_yaml)
+            train_names = normalize_names(train_data.get("names"))
             logger.info("Dataset yaml: %s", args.data_yaml)
-            logger.info("Dataset train: %s", resolve_split_path(data, "train"))
-            logger.info("Dataset val: %s", resolve_split_path(data, "val"))
-            logger.info("Class names: %s", names)
+            logger.info("Dataset yaml used for YOLO training/eval: %s", data_yaml)
+            logger.info("Dataset train: %s", resolve_split_path(train_data, "train"))
+            logger.info("Dataset val: %s", resolve_split_path(train_data, "val"))
+            logger.info("Original class names: %s", names)
+            logger.info("Training class names: %s", train_names)
             logger.info("Model: %s", args.model)
             logger.info("Output directory: %s", experiment_dir)
             logger.info("Training config: epochs=%s batch=%s imgsz=%s lr0=%s optimizer=%s amp=%s resume=%s", args.epochs, args.batch_size, args.imgsz, args.lr0, args.optimizer, args.amp, args.resume)
             save_json(experiment_dir / "configs" / "args.json", vars(args))
             save_json(experiment_dir / "configs" / "versions.json", collect_versions())
-            (experiment_dir / "configs" / "config_used.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+            if args.skip_filtered_dataset:
+                (experiment_dir / "configs" / "config_used.yaml").write_text(yaml.safe_dump(train_data, sort_keys=False), encoding="utf-8")
 
             from ultralytics import YOLO
 
@@ -473,7 +576,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             elif args.eval_only:
                 logger.info("Evaluation start: split=%s", args.eval_split)
                 metrics = model.val(
-                    data=args.data_yaml,
+                    data=str(data_yaml),
                     split=args.eval_split,
                     imgsz=args.imgsz,
                     batch=args.batch_size,
@@ -488,11 +591,11 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 results["evaluation"] = to_serializable(metrics)
                 save_json(experiment_dir / "metrics" / "evaluation.json", results["evaluation"])
                 save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", metrics, logger)
-                save_sample_visualizations(model, args, experiment_dir, data, logger)
+                save_sample_visualizations(model, args, experiment_dir, train_data, logger)
             else:
                 logger.info("Training start: epochs=%s", args.epochs)
                 train_args = {
-                    "data": args.data_yaml,
+                    "data": str(data_yaml),
                     "epochs": args.epochs,
                     "batch": args.batch_size,
                     "imgsz": args.imgsz,
@@ -521,7 +624,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 results["training_history"] = log_epoch_metrics(experiment_dir, logger)
                 logger.info("Evaluation start after training: split=val")
                 metrics = model.val(
-                    data=args.data_yaml,
+                    data=str(data_yaml),
                     split="val",
                     imgsz=args.imgsz,
                     batch=args.batch_size,
@@ -536,7 +639,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 results["evaluation"] = to_serializable(metrics)
                 save_json(experiment_dir / "metrics" / "evaluation.json", results["evaluation"])
                 save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", metrics, logger)
-                save_sample_visualizations(model, args, experiment_dir, data, logger)
+                save_sample_visualizations(model, args, experiment_dir, train_data, logger)
 
             if args.export:
                 logger.info("Export start: format=%s", args.export_format)

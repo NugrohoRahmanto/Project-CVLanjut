@@ -369,7 +369,15 @@ pretrained_zero_shot_unknown
 
 ## 8. YOLO Biasa
 
-Pipeline YOLO biasa tersedia untuk baseline supervised detector tanpa prompt dan tanpa unknown zero-shot. Dataset tetap memakai `data/bdd10k/bdd10k.yaml`, training memakai split `train`, sedangkan metric dan visual evaluation memakai split `val`.
+Pipeline YOLO biasa tersedia untuk baseline supervised detector tanpa prompt dan tanpa unknown zero-shot. Dataset sumber tetap memakai `data/bdd10k/bdd10k.yaml`, training memakai split `train`, sedangkan metric dan visual evaluation memakai split `val`.
+
+Default YOLO biasa juga memakai filter kelas training:
+
+```text
+train-classes: car,bus,truck
+```
+
+Ubah kelas training dengan `--train-classes`, atau gunakan `--skip-filtered-dataset` jika ingin memakai 10 kelas penuh dari `bdd10k.yaml`.
 
 Runner:
 
@@ -394,6 +402,7 @@ bash run_train_yolo_bdd10k.sh \
   --output-dir runs/yolo_bdd10k \
   --experiment-name yolo_bdd10k_finetune \
   --timestamp-output \
+  --train-classes car,bus,truck \
   --epochs 50 \
   --batch-size 16 \
   --imgsz 640 \
@@ -412,6 +421,7 @@ bash run_train_yolo_bdd10k.sh \
   --output-dir runs/yolo_bdd10k \
   --experiment-name smoke_yolo_bdd10k \
   --timestamp-output \
+  --train-classes car,bus,truck \
   --epochs 1 \
   --batch-size 2 \
   --imgsz 320 \
@@ -432,6 +442,7 @@ bash run_train_yolo_bdd10k.sh \
   --timestamp-output \
   --eval-only \
   --eval-split val \
+  --train-classes car,bus,truck \
   --imgsz 640 \
   --batch-size 16 \
   --device 0 \
@@ -452,6 +463,65 @@ bash run_train_yolo_bdd10k.sh \
   --conf-thres 0.25 \
   --iou-thres 0.7 \
   --device 0
+```
+
+Serial training YOLO biasa untuk beberapa model:
+
+```bash
+bash run_train_yolo_bdd10k_serial.sh
+```
+
+Default serial menjalankan:
+
+```text
+subset classes : car,bus,truck
+full classes   : 10 kelas dari data/bdd10k/bdd10k.yaml
+models         : yolov8s.pt,yolov8m.pt,yolov8l.pt
+batch sizes    : 48,32,16
+epochs         : 100
+device         : 0
+```
+
+Custom serial, misalnya subset 5 kelas dan tetap lanjut 10 kelas:
+
+```bash
+SUBSET_CLASSES="car,bus,truck,motorcycle,bicycle" \
+SUBSET_TAG="vehicle_5class" \
+MODELS="yolov8s.pt,yolov8m.pt,yolov8l.pt" \
+BATCH_SIZES="48,32,16" \
+MODEL_TAGS="s,m,l" \
+EPOCHS="100" \
+IMGSZ="640" \
+LR0="1e-4" \
+DEVICE="0" \
+WORKERS="8" \
+AMP="true" \
+bash run_train_yolo_bdd10k_serial.sh
+```
+
+Hanya train 10 kelas tanpa subset:
+
+```bash
+RUN_SUBSET="false" \
+RUN_FULL="true" \
+bash run_train_yolo_bdd10k_serial.sh
+```
+
+Hanya train subset tanpa 10 kelas:
+
+```bash
+RUN_SUBSET="true" \
+RUN_FULL="false" \
+SUBSET_CLASSES="car,bus,truck,traffic light,traffic sign" \
+SUBSET_TAG="road_5class" \
+bash run_train_yolo_bdd10k_serial.sh
+```
+
+Monitor serial YOLO biasa:
+
+```bash
+tail -f serial_yolo_bdd10k.log
+tail -f training.log
 ```
 
 Output YOLO biasa:
