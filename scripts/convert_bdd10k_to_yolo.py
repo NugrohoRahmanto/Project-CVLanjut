@@ -22,6 +22,12 @@ BDD10K_NAMES = [
     "traffic sign",
 ]
 
+BDD10K_CATEGORY_ALIASES = {
+    "person": "pedestrian",
+    "motor": "motorcycle",
+    "bike": "bicycle",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert BDD10K detection JSON annotations to Ultralytics YOLO txt labels.")
@@ -176,6 +182,12 @@ def ensure_data_yaml(data_root: Path) -> None:
     print(f"Wrote data yaml: {yaml_path}")
 
 
+def normalize_category(category: str | None) -> str | None:
+    if not category:
+        return None
+    return BDD10K_CATEGORY_ALIASES.get(category, category)
+
+
 def convert_records(input_json: Path, image_dir: Path, output_dir: Path, class_to_id: dict[str, int], overwrite: bool) -> tuple[int, int, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     records = json.loads(input_json.read_text(encoding="utf-8"))
@@ -193,7 +205,7 @@ def convert_records(input_json: Path, image_dir: Path, output_dir: Path, class_t
         width, height = image_size(image_path)
         lines: list[str] = []
         for label in item.get("labels", []):
-            category = label.get("category")
+            category = normalize_category(label.get("category"))
             box = label.get("box2d")
             if category not in class_to_id or not box:
                 continue

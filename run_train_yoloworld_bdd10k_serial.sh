@@ -15,6 +15,7 @@ run_one() {
   local model="$1"
   local batch_size="$2"
   local tag="$3"
+  shift 3
 
   echo "[$(date "+%Y-%m-%d %H:%M:%S")] START ${tag}: model=${model}, batch=${batch_size}"
   "'"$PYTHON_BIN"'" scripts/run_train_yoloworld_bdd10k.py \
@@ -29,13 +30,21 @@ run_one() {
     --lr0 1e-4 \
     --device 0 \
     --workers 8 \
-    --amp
+    --amp \
+    "$@"
   echo "[$(date "+%Y-%m-%d %H:%M:%S")] FINISH ${tag}"
 }
 
-run_one yolov8s-world.pt 48 yolo_s
-run_one yolov8m-world.pt 32 yolo_m
-run_one yolov8l-world.pt 16 yolo_l
+echo "[$(date "+%Y-%m-%d %H:%M:%S")] SERIAL GROUP START: YOLO-World 3-class known"
+run_one yolov8s-world.pt 48 yolo_3class_s
+run_one yolov8m-world.pt 32 yolo_3class_m
+run_one yolov8l-world.pt 16 yolo_3class_l
+
+echo "[$(date "+%Y-%m-%d %H:%M:%S")] SERIAL GROUP START: YOLO-World 10-class full"
+ALL_CLASSES="pedestrian,rider,car,truck,bus,train,motorcycle,bicycle,traffic light,traffic sign"
+run_one yolov8s-world.pt 48 yolo_10class_s --known-classes "${ALL_CLASSES}" --unknown-prompts "" --no-use-zero-shot-unknown-model
+run_one yolov8m-world.pt 32 yolo_10class_m --known-classes "${ALL_CLASSES}" --unknown-prompts "" --no-use-zero-shot-unknown-model
+run_one yolov8l-world.pt 16 yolo_10class_l --known-classes "${ALL_CLASSES}" --unknown-prompts "" --no-use-zero-shot-unknown-model
 
 echo "[$(date "+%Y-%m-%d %H:%M:%S")] SERIAL TRAINING QUEUE FINISHED"
 ' > "$QUEUE_LOG" 2>&1 &

@@ -314,6 +314,130 @@ bash run_train_yoloworld_bdd10k.sh \
   --device 0
 ```
 
+### Research Evaluation tanpa retraining
+
+Untuk kebutuhan riset di `contex.md`, evaluasi final harus memakai dua ground truth:
+
+```text
+all_class     : semua 10 kelas BDD10K
+unknown_class : hanya kelas unknown, default pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign
+```
+
+Evaluator ini tidak melakukan training ulang. Script membaca checkpoint `weights/best.pt`, membaca `configs/config_used.yaml` untuk mengetahui urutan kelas saat training, lalu membuat dataset evaluasi sementara dengan mapping kelas yang sesuai.
+
+Evaluasi semua checkpoint lama sekaligus:
+
+```bash
+bash run_evaluate_research_metrics.sh \
+  --device 0 \
+  --batch-size 8
+```
+
+Output utama:
+
+```text
+runs/research_metrics_summary.csv
+runs/research_metrics_summary.json
+research_evaluation.log
+runs/<root>/<experiment-name>/research_eval/
+  datasets/
+  all_class_metrics.json
+  unknown_class_metrics.json
+  research_metrics_summary.json
+  research_summary.csv
+```
+
+Evaluasi satu run saja:
+
+```bash
+.venv/bin/python scripts/evaluate_research_metrics.py \
+  --run-dir runs/yoloworld_bdd10k/<nama-run-training> \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --device 0 \
+  --batch-size 8
+```
+
+Pipeline lama juga bisa menjalankan research evaluation dari mode eval-only:
+
+```bash
+bash run_train_yoloworld_bdd10k.sh \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model runs/yoloworld_bdd10k/<nama-run-training>/weights/best.pt \
+  --output-dir runs/yoloworld_bdd10k \
+  --experiment-name eval_research_yoloworld \
+  --timestamp-output \
+  --eval-only \
+  --research-eval-only \
+  --device 0
+```
+
+Untuk YOLO biasa:
+
+```bash
+bash run_train_yolo_bdd10k.sh \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model runs/yolo_bdd10k/<nama-run-training>/weights/best.pt \
+  --output-dir runs/yolo_bdd10k \
+  --experiment-name eval_research_yolo \
+  --timestamp-output \
+  --eval-only \
+  --research-eval-only \
+  --device 0
+```
+
+Metrik yang disimpan untuk kedua bagian evaluasi adalah `mAP50`, `mAP50-95`, `Precision`, `Recall`, dan `F1`. Nilai `F1` dihitung eksplisit dari precision dan recall:
+
+```text
+F1 = 2 * Precision * Recall / (Precision + Recall)
+```
+
+Visualisasi ground truth vs prediksi dari hasil `research_eval`:
+
+```bash
+.venv/bin/python scripts/visualize_research_eval.py \
+  --run-dir runs/yoloworld_bdd10k/<nama-run-training> \
+  --mode both \
+  --sample-count 12 \
+  --device 0
+```
+
+Output:
+
+```text
+runs/yoloworld_bdd10k/<nama-run-training>/research_eval/visualizations/
+  all_class/
+  unknown_class/
+  visualization_summary.json
+```
+
+Panel kiri adalah ground truth, panel kanan adalah bbox prediksi model dengan prompt/class order yang sama seperti research evaluation. Untuk `unknown_class`, prediksi known disembunyikan secara default agar fokus ke kelas unknown; jika ingin melihat semua prediksi pada panel unknown, tambahkan `--no-filter-pred-to-gt-classes`.
+
+### Pure Pretrained YOLO-World Baseline tanpa training
+
+Baseline ini menjalankan inference/evaluation YOLO-World Small, Medium, dan Large langsung dari pretrained weights Ultralytics. Tidak ada training atau fine-tuning.
+
+```bash
+bash run_pretrained_yoloworld_bdd10k.sh \
+  --known-classes "car,bus,truck" \
+  --unknown-classes "pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign" \
+  --device 0 \
+  --batch-size 8
+```
+
+Output utama:
+
+```text
+outputs/pretrained_yoloworld_bdd10k/
+  pretrained_yoloworld_summary.csv
+  pretrained_yoloworld_summary.json
+  table6_pretrained_yoloworld.md
+  table7_pretrained_yoloworld_unknown_per_class_map50.md
+  table8_pretrained_yoloworld_efficiency_latency.md
+  yolov8s-world/research_eval/
+  yolov8m-world/research_eval/
+  yolov8l-world/research_eval/
+```
+
 ## 7. Prediction
 
 Predict dengan default prompt:

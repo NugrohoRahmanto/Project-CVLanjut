@@ -41,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--experiment-name", default="yolo_bdd10k_finetune")
     parser.add_argument("--timestamp-output", action="store_true")
     parser.add_argument("--train-classes", default=DEFAULT_TRAIN_CLASSES, help="Comma-separated class names used for supervised YOLO training.")
+    parser.add_argument("--unknown-classes", default="", help="Optional comma-separated unknown classes for research evaluation. Default: all classes not in --train-classes.")
     parser.add_argument("--skip-filtered-dataset", action="store_true", help="Use data yaml as-is without filtering --train-classes.")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -69,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save-eval-samples", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--sample-source", default="")
     parser.add_argument("--sample-count", type=int, default=16)
+    parser.add_argument("--research-eval", action="store_true", help="Run all-class and unknown-class research evaluation without changing training behavior.")
+    parser.add_argument("--research-eval-only", action="store_true", help="With --eval-only, skip the legacy validation and run only research evaluation.")
+    parser.add_argument("--research-output-name", default="research_eval", help="Subdirectory name for research evaluation artifacts.")
     parser.add_argument("--export", action="store_true")
     parser.add_argument("--export-format", default="onnx")
     return parser
@@ -680,6 +684,42 @@ def save_sample_visualizations(model: Any, args: argparse.Namespace, experiment_
     return rows
 
 
+def run_research_evaluation(model: Any, args: argparse.Namespace, experiment_dir: Path, train_data: dict[str, Any], logger: logging.Logger) -> dict[str, Any]:
+    from research_evaluation import evaluate_research_metrics
+
+    train_names = normalize_names(train_data.get("names"))
+    trained_classes = [name for _, name in sorted(train_names.items())]
+    checkpoint = experiment_dir / "weights" / "best.pt"
+    if not checkpoint.exists():
+        checkpoint = Path(args.model)
+    checkpoint_run_dir = checkpoint.parent.parent if checkpoint.parent.name == "weights" else None
+    checkpoint_config = checkpoint_run_dir / "configs" / "config_used.yaml" if checkpoint_run_dir else None
+    if checkpoint_config and checkpoint_config.exists():
+        checkpoint_names = normalize_names(load_yaml(checkpoint_config).get("names", {}))
+        trained_classes = [name for _, name in sorted(checkpoint_names.items())]
+        logger.info("Research evaluation class mapping loaded from checkpoint run config: %s", checkpoint_config)
+    logger.info("Research evaluation requested for YOLO. trained_classes=%s checkpoint=%s", trained_classes, checkpoint)
+    return evaluate_research_metrics(
+        model=model,
+        model_type="yolo",
+        source_data_yaml=Path(args.data_yaml),
+        output_dir=experiment_dir / args.research_output_name,
+        trained_classes=trained_classes,
+        known_classes=parse_csv(args.train_classes),
+        unknown_classes=parse_csv(args.unknown_classes),
+        split=args.eval_split,
+        imgsz=args.imgsz,
+        batch=args.batch_size,
+        conf=args.conf_thres,
+        iou=args.iou_thres,
+        device=args.device,
+        workers=args.workers,
+        run_dir=experiment_dir,
+        checkpoint=checkpoint,
+        logger=logger,
+    )
+
+
 def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     start = time.time()
     experiment_name = timestamped_name(args.experiment_name) if args.timestamp_output else args.experiment_name
@@ -737,24 +777,27 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 results["prediction"] = to_serializable(pred)
             elif args.eval_only:
-                logger.info("Evaluation start: split=%s", args.eval_split)
-                metrics = model.val(
-                    data=str(data_yaml),
-                    split=args.eval_split,
-                    imgsz=args.imgsz,
-                    batch=args.batch_size,
-                    conf=args.conf_thres,
-                    iou=args.iou_thres,
-                    device=args.device,
-                    workers=args.workers,
-                    project=str(experiment_dir),
-                    name="validation",
-                    exist_ok=True,
-                )
-                results["evaluation"] = to_serializable(metrics)
-                save_json(experiment_dir / "metrics" / "evaluation.json", results["evaluation"])
-                save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", metrics, logger)
-                save_sample_visualizations(model, args, experiment_dir, train_data, logger)
+                if not args.research_eval_only:
+                    logger.info("Evaluation start: split=%s", args.eval_split)
+                    metrics = model.val(
+                        data=str(data_yaml),
+                        split=args.eval_split,
+                        imgsz=args.imgsz,
+                        batch=args.batch_size,
+                        conf=args.conf_thres,
+                        iou=args.iou_thres,
+                        device=args.device,
+                        workers=args.workers,
+                        project=str(experiment_dir),
+                        name="validation",
+                        exist_ok=True,
+                    )
+                    results["evaluation"] = to_serializable(metrics)
+                    save_json(experiment_dir / "metrics" / "evaluation.json", results["evaluation"])
+                    save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", metrics, logger)
+                    save_sample_visualizations(model, args, experiment_dir, train_data, logger)
+                if args.research_eval or args.research_eval_only:
+                    results["research_evaluation"] = run_research_evaluation(model, args, experiment_dir, train_data, logger)
             else:
                 logger.info("Training start: epochs=%s", args.epochs)
                 train_args = {
@@ -803,6 +846,8 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 save_json(experiment_dir / "metrics" / "evaluation.json", results["evaluation"])
                 save_metrics_csv(experiment_dir / "metrics" / "final_metrics.csv", metrics, logger)
                 save_sample_visualizations(model, args, experiment_dir, train_data, logger)
+                if args.research_eval:
+                    results["research_evaluation"] = run_research_evaluation(model, args, experiment_dir, train_data, logger)
 
             if args.export:
                 logger.info("Export start: format=%s", args.export_format)
