@@ -1,5 +1,5 @@
 # Fdb version 4
-["bibtex main"] 0 "main.aux" "main.bbl" "main" 1782036083.37245 0
+["bibtex main"] 0 "main.aux" "main.bbl" "main" 1782053930.34574 0
   "/usr/share/texlive/texmf-dist/bibtex/bst/ieeetran/IEEEtran.bst" 1440712899 57748 7c8250ecf02814ce6ddc0cdbb63df1dd ""
   "References.bib" 0 -1 0 ""
   "main.aux" 0 -1 0 "pdflatex"
@@ -7,7 +7,7 @@
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1782036083.18124 "/workspace/Project-CVLanjut/file-tex/main.tex" "main.pdf" "main" 1782036083.37259 0
+["pdflatex"] 1782053930.12764 "/workspace/Project-CVLanjut/file-tex/main.tex" "main.pdf" "main" 1782053930.3459 0
   "/etc/texmf/web2c/texmf.cnf" 1782024830.92967 475 c0e671620eb5563b2130f56340a5fde8 ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -95,10 +95,10 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1782026935.1142 165012 f177baa1c39a3ebd62c3096a43521a0d ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1782026955 6831094 fb1273bce83a093b075b1f51e3baef37 ""
-  "/workspace/Project-CVLanjut/file-tex/main.tex" 1782036082.78399 17565 7bdb39317e5f56a42ae2d59d331c6be4 ""
-  "main.aux" 1782036083.32697 2858 7861911af98acf1050a8396effba9227 "pdflatex"
+  "/workspace/Project-CVLanjut/file-tex/main.tex" 1782053929.52401 24726 07d936175a0d0eebc1b24dc1deeb1960 ""
+  "main.aux" 1782053930.29144 3631 c52f8e4da8c021de6d203616571fb0f2 "pdflatex"
   "main.bbl" 1782026996.5666 3799 96c5ad33e47f33c7af614946653898b1 "bibtex main"
-  "main.tex" 1782036082.78399 17565 7bdb39317e5f56a42ae2d59d331c6be4 ""
+  "main.tex" 1782053929.52401 24726 07d936175a0d0eebc1b24dc1deeb1960 ""
   (generated)
   "main.aux"
   "main.log"

@@ -1,84 +1,71 @@
-# YOLO-World BDD10K Pipeline
+# Open-Vocabulary Hazard Perception for Autonomous Driving
 
-Pipeline ini menjalankan training, evaluation, prediction, visual evaluation, dan export YOLO-World untuk BDD10K memakai `ultralytics`. Training dijalankan lewat script bash background dengan `nohup`, sehingga terminal langsung kembali ke prompt setelah command dimasukkan.
+Research pipeline for evaluating **YOLO-World** and **Standard YOLO** on BDD10K under autonomous-driving open-vocabulary object detection scenarios.
 
-Default eksperimen:
+Recommended paper title:
 
 ```text
-Known supervised classes : car, bus, truck
-Unknown zero-shot prompts: pedestrian, rider, train, motorcycle, bicycle, traffic light, traffic sign
-Training model           : yolov8s-world.pt atau checkpoint YOLO-World lain
-Unknown model            : yolov8s-world.pt pretrained
-Output root              : runs/yoloworld_bdd10k/
-Root log                 : training.log
+Open-Vocabulary Hazard Perception for Autonomous Driving: Evaluating YOLO-World Against Closed-Set YOLO on Unseen Road Objects
 ```
 
-## 1. Setup
+Alternative title ideas:
 
-Clone repository:
-
-```bash
-git clone <url-repo-anda>
-cd cvlanjut-project
+```text
+Zero-Shot Road Object Detection for Autonomous Systems Using YOLO-World
+Open-Vocabulary Object Detection for Autonomous Driving Safety on BDD10K
+Evaluating Open-Vocabulary and Closed-Set YOLO Detectors for Autonomous Driving Perception
+Unknown Object Detection in Autonomous Driving: A YOLO-World and Standard YOLO Study
 ```
 
-Install `uv` jika belum ada:
+## Research Scope
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+This project compares open-vocabulary and closed-set object detectors for autonomous driving. The central research question is whether YOLO-World can detect road objects that were not included during supervised fine-tuning, while Standard YOLO remains limited by its closed-set detection head.
+
+Default BDD10K class split:
+
+```text
+Known classes   : car,bus,truck
+Unknown classes : pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign
+All classes     : pedestrian,rider,car,truck,bus,train,motorcycle,bicycle,traffic light,traffic sign
 ```
 
-Tutup dan buka terminal lagi, lalu cek:
+Main experiment schemes:
 
-```bash
-uv --version
-```
+| Scheme | Model | Training Config | Purpose |
+| --- | --- | --- | --- |
+| 1 | YOLO-World | 10 classes | Open-vocabulary upper-bound after all-class fine-tuning |
+| 2 | YOLO-World | 3 known classes | Zero-shot unknown-class detection through text prompts |
+| 3 | Standard YOLO | 10 classes | Closed-set all-class supervised baseline |
+| 4 | Standard YOLO | 3 known classes | Closed-set known-only limitation baseline |
+| 5 | YOLO-World | Pure pretrained | No BDD10K training; full prompt-based zero-shot baseline |
 
-Install dependency project:
+## Setup
+
+Install dependencies with `uv`:
 
 ```bash
 uv sync
 ```
 
-Project memakai Python `>=3.10,<3.11`. Setelah `uv sync`, runner bash otomatis memakai `.venv/bin/python` jika tersedia.
+The project uses Python `>=3.10,<3.11`. Shell wrappers automatically prefer `.venv/bin/python` when available.
 
-## 2. Download Dataset
+## Dataset Preparation
 
-Download BDD10K dari Kaggle, unzip langsung ke folder `data`, lalu hapus zip.
-
-```bash
-curl -L -o ./bdd10k.zip \
-  https://www.kaggle.com/api/v1/datasets/download/aadityadamle/bdd10k
-unzip -q ./bdd10k.zip -d data
-rm -f ./bdd10k.zip
-```
-
-Jika Kaggle meminta autentikasi, pastikan credential tersedia di `~/.kaggle/kaggle.json`.
-
-Struktur yang diharapkan:
-
-```text
-data/bdd10k/
-  images/
-    train/
-    val/
-  labels/
-    train/
-    val/
-  bdd10k.yaml
-```
-
-Converter pada langkah berikutnya akan membuat `data/bdd10k/images/train` dan `images/val` secara otomatis.
-
-Cek lokasi file annotation JSON setelah unzip:
+Download and extract BDD10K into `data/bdd10k`, then convert labels into YOLO format:
 
 ```bash
-find data/bdd10k -type f -name '*.json' | sort | head -50
+.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
+  --data-root data/bdd10k
 ```
 
-Jika `bdd100k_labels_images_train.json` berada di subfolder lain, pakai path yang ditemukan pada flag `--input-json`.
+Validate the converted dataset:
 
-Default class mapping di `data/bdd10k/bdd10k.yaml`:
+```bash
+.venv/bin/python scripts/check_bdd10k_dataset.py \
+  --data-yaml data/bdd10k/bdd10k.yaml
+```
+
+Expected canonical class order in `data/bdd10k/bdd10k.yaml`:
 
 ```yaml
 names:
@@ -94,327 +81,143 @@ names:
   9: traffic sign
 ```
 
-## 3. Convert dan Check Dataset
-
-Setelah unzip dengan command download di atas, dataset Kaggle berisi image mentah di:
+The converter normalizes BDD raw labels:
 
 ```text
-data/bdd10k/train
-data/bdd10k/val
-data/bdd10k/test
+person -> pedestrian
+motor  -> motorcycle
+bike   -> bicycle
 ```
 
-Untuk pipeline saat ini, hanya split `train` dan `val` yang dipakai:
+## Training
 
-```text
-Ultralytics train: image yang namanya ada di bdd100k_labels_images_train.json
-Ultralytics val  : image yang namanya ada di bdd100k_labels_images_val.json
-Ultralytics test : tidak digunakan
-```
-
-Converter mencari file image berdasarkan nama dari JSON annotation di folder raw `data/bdd10k/train`, `data/bdd10k/val`, dan `data/bdd10k/test`. Data `val` tidak diambil dari train dan tidak masuk training; jika ada nama yang overlap, converter mengeluarkannya dari train.
-
-Path yang dipakai `data/bdd10k/bdd10k.yaml`:
-
-```text
-data/bdd10k/images/train
-data/bdd10k/images/val
-```
-
-Jalankan converter mode otomatis. Command ini membuat link image train/val, convert JSON train/val ke YOLO label, serta menulis `bdd10k.yaml`:
-
-```bash
-.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
-  --data-root data/bdd10k
-```
-
-Converter mempertahankan 10 kelas BDD asli. Filtering ke known class dilakukan otomatis oleh runner di folder eksperimen.
-
-Jika converter melaporkan `No val labels were converted`, berarti tidak ada file image yang cocok dengan nama di `bdd100k_labels_images_val.json`. Perbaiki struktur dataset terlebih dahulu, karena pipeline ini mensyaratkan `val` memiliki ground truth.
-
-Jika ingin convert split manual, format ini tetap didukung:
-
-```bash
-.venv/bin/python scripts/convert_bdd10k_to_yolo.py \
-  --input-json data/bdd10k/labels/bdd100k_labels_images_train.json \
-  --image-dir data/bdd10k/images/train \
-  --output-label-dir data/bdd10k/labels/train
-```
-
-Check dataset:
-
-```bash
-.venv/bin/python scripts/check_bdd10k_dataset.py \
-  --data-yaml data/bdd10k/bdd10k.yaml
-```
-
-Checker melaporkan folder image/label, jumlah image, missing label, empty label, invalid class id, invalid bbox, dan distribusi annotation per class.
-
-Jika muncul error `Input JSON not found`, cek lokasi JSON sebenarnya:
-
-```bash
-find data/bdd10k -type f -name '*.json' | sort
-```
-
-Catatan: folder raw `data/bdd10k/test` tidak dipakai untuk training, metric, atau visual evaluation.
-
-## 4. Cara Kerja Pipeline
-
-### Training Known Class
-
-Training supervised hanya memakai class berikut secara default:
-
-```python
-["car", "bus", "truck"]
-```
-
-Runner membuat dataset sementara:
-
-```text
-runs/yoloworld_bdd10k/<experiment-name>/dataset_known/
-```
-
-Di dataset sementara ini, label hanya berisi known class dan class id di-remap menjadi `0..2`. Text/CLIP/prompt encoder dibekukan secara best-effort dengan default `--freeze-text-encoder`.
-
-### Zero-Shot Unknown
-
-Model fine-tuned 3 kelas sering menjadi terlalu spesifik dan tidak lagi memilih prompt unknown dengan baik. Karena itu pipeline memakai dua branch untuk evaluation sample dan predict:
-
-```text
-Branch known  : checkpoint fine-tuned, prompt car,bus,truck
-Branch unknown: YOLO-World pretrained, prompt unknown zero-shot
-```
-
-Default unknown prompt:
-
-```python
-["pedestrian", "rider", "train", "motorcycle", "bicycle", "traffic light", "traffic sign"]
-```
-
-Semua bbox dari branch unknown disimpan sebagai:
-
-```text
-Unknown Object
-```
-
-Pada visual evaluation:
-
-```text
-Kiri  : ground truth
-Kanan : inference
-Hijau : known class
-Merah : Unknown Object
-```
-
-## 5. Training
-
-Semua command di bawah memakai [run_train_yoloworld_bdd10k.sh](run_train_yoloworld_bdd10k.sh). Script menjalankan proses dengan `nohup` di background tanpa logger langsung di terminal.
-
-Training tanpa flag:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh
-```
-
-Default training tanpa flag:
-
-```text
-data-yaml      : data/bdd10k/bdd10k.yaml
-model          : yolov8s-world.pt
-output-dir     : runs/yoloworld_bdd10k
-experiment-name: yoloworld_bdd10k_finetune
-epochs         : 50
-batch-size     : 8
-imgsz          : 640
-device         : 0
-amp            : true
-known-classes  : car,bus,truck
-```
-
-Training dengan flag:
+Train YOLO-World:
 
 ```bash
 bash run_train_yoloworld_bdd10k.sh \
   --data-yaml data/bdd10k/bdd10k.yaml \
-  --model yolov8s-world.pt \
+  --model yolov8l-world.pt \
   --output-dir runs/yoloworld_bdd10k \
-  --experiment-name yoloworld_bdd10k_finetune \
+  --experiment-name yoloworld_bdd10k_finetune_yolo_l_3class \
   --timestamp-output \
-  --epochs 50 \
-  --batch-size 8 \
+  --known-classes "car,bus,truck" \
+  --epochs 100 \
+  --batch-size 16 \
   --imgsz 640 \
-  --lr0 1e-4 \
   --device 0 \
-  --workers 8 \
   --amp
 ```
 
-Smoke test GPU:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model yolov8s-world.pt \
-  --output-dir runs/yoloworld_bdd10k \
-  --experiment-name smoke_yoloworld_bdd10k \
-  --timestamp-output \
-  --epochs 1 \
-  --batch-size 2 \
-  --imgsz 320 \
-  --workers 0 \
-  --device 0 \
-  --amp \
-  --patience 1
-```
-
-Resume:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model runs/yoloworld_bdd10k/yoloworld_bdd10k_finetune/weights/last.pt \
-  --output-dir runs/yoloworld_bdd10k \
-  --experiment-name yoloworld_bdd10k_finetune \
-  --device 0 \
-  --amp \
-  --resume
-```
-
-## 6. Evaluation
-
-Eval-only:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model runs/yoloworld_bdd10k/yoloworld_bdd10k_finetune/weights/best.pt \
-  --output-dir runs/yoloworld_bdd10k \
-  --experiment-name eval_yoloworld_bdd10k_finetune \
-  --timestamp-output \
-  --eval-only \
-  --eval-split val \
-  --imgsz 640 \
-  --batch-size 8 \
-  --device 0 \
-  --sample-source data/bdd10k/images/val \
-  --sample-count 24 \
-  --zero-shot-unknown-model yolov8s-world.pt \
-  --unknown-conf-thres 0.05
-```
-
-`model.val()` menghitung metric Ultralytics pada split `val` secara default. Data `val` tidak masuk training dan hanya dipakai untuk metric evaluation serta visual evaluation. Gambar di `evaluation/images/` dibuat oleh dua branch: checkpoint fine-tuned untuk known class dan YOLO-World pretrained untuk unknown zero-shot.
-
-Matikan visual sample jika hanya ingin metric:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --model runs/yoloworld_bdd10k/yoloworld_bdd10k_finetune/weights/best.pt \
-  --eval-only \
-  --no-save-eval-samples \
-  --device 0
-```
-
-### Research Evaluation tanpa retraining
-
-Untuk kebutuhan riset di `contex.md`, evaluasi final harus memakai dua ground truth:
-
-```text
-all_class     : semua 10 kelas BDD10K
-unknown_class : hanya kelas unknown, default pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign
-```
-
-Evaluator ini tidak melakukan training ulang. Script membaca checkpoint `weights/best.pt`, membaca `configs/config_used.yaml` untuk mengetahui urutan kelas saat training, lalu membuat dataset evaluasi sementara dengan mapping kelas yang sesuai.
-
-Evaluasi semua checkpoint lama sekaligus:
-
-```bash
-bash run_evaluate_research_metrics.sh \
-  --device 0 \
-  --batch-size 8
-```
-
-Output utama:
-
-```text
-runs/research_metrics_summary.csv
-runs/research_metrics_summary.json
-research_evaluation.log
-runs/<root>/<experiment-name>/research_eval/
-  datasets/
-  all_class_metrics.json
-  unknown_class_metrics.json
-  research_metrics_summary.json
-  research_summary.csv
-```
-
-Evaluasi satu run saja:
-
-```bash
-.venv/bin/python scripts/evaluate_research_metrics.py \
-  --run-dir runs/yoloworld_bdd10k/<nama-run-training> \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --device 0 \
-  --batch-size 8
-```
-
-Pipeline lama juga bisa menjalankan research evaluation dari mode eval-only:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model runs/yoloworld_bdd10k/<nama-run-training>/weights/best.pt \
-  --output-dir runs/yoloworld_bdd10k \
-  --experiment-name eval_research_yoloworld \
-  --timestamp-output \
-  --eval-only \
-  --research-eval-only \
-  --device 0
-```
-
-Untuk YOLO biasa:
+Train Standard YOLO:
 
 ```bash
 bash run_train_yolo_bdd10k.sh \
   --data-yaml data/bdd10k/bdd10k.yaml \
-  --model runs/yolo_bdd10k/<nama-run-training>/weights/best.pt \
+  --model yolov8l.pt \
   --output-dir runs/yolo_bdd10k \
-  --experiment-name eval_research_yolo \
+  --experiment-name yolo_bdd10k_finetune_yolo_3class_l \
   --timestamp-output \
-  --eval-only \
-  --research-eval-only \
-  --device 0
+  --train-classes "car,bus,truck" \
+  --epochs 100 \
+  --batch-size 16 \
+  --imgsz 640 \
+  --device 0 \
+  --amp
 ```
 
-Metrik yang disimpan untuk kedua bagian evaluasi adalah `mAP50`, `mAP50-95`, `Precision`, `Recall`, dan `F1`. Nilai `F1` dihitung eksplisit dari precision dan recall:
-
-```text
-F1 = 2 * Precision * Recall / (Precision + Recall)
-```
-
-Visualisasi ground truth vs prediksi dari hasil `research_eval`:
+Serial training scripts are available for small, medium, and large variants:
 
 ```bash
-.venv/bin/python scripts/visualize_research_eval.py \
-  --run-dir runs/yoloworld_bdd10k/<nama-run-training> \
-  --mode both \
-  --sample-count 12 \
-  --device 0
+bash run_train_yoloworld_bdd10k_serial.sh
+bash run_train_yolo_bdd10k_serial.sh
 ```
 
-Output:
+## Research Evaluation
+
+Research evaluation always creates two evaluation targets:
 
 ```text
-runs/yoloworld_bdd10k/<nama-run-training>/research_eval/visualizations/
-  all_class/
-  unknown_class/
-  visualization_summary.json
+all_class     : all 10 BDD10K classes
+unknown_class : only the 7 unknown/unseen classes
 ```
 
-Panel kiri adalah ground truth, panel kanan adalah bbox prediksi model dengan prompt/class order yang sama seperti research evaluation. Untuk `unknown_class`, prediksi known disembunyikan secara default agar fokus ke kelas unknown; jika ingin melihat semua prediksi pada panel unknown, tambahkan `--no-filter-pred-to-gt-classes`.
+Metrics:
 
-### Pure Pretrained YOLO-World Baseline tanpa training
+```text
+mAP50, mAP50-95, Precision, Recall, F1-Score
+```
 
-Baseline ini menjalankan inference/evaluation YOLO-World Small, Medium, dan Large langsung dari pretrained weights Ultralytics. Tidak ada training atau fine-tuning.
+### Evaluate All Existing Trained Runs
+
+```bash
+bash run_results_eval.sh \
+  --known-classes "car,bus,truck" \
+  --unknown-classes "pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign" \
+  --output-dir outputs/results_eval_bdd10k_official \
+  --device 0 \
+  --batch-size 8 \
+  --allow-failures
+```
+
+Outputs:
+
+```text
+outputs/results_eval_bdd10k_official/
+  research_metrics_summary.csv
+  research_metrics_summary.json
+  table1_all_class.md
+  table2_zero_shot_known_train.md
+  table3_unknown_per_class_map50.md
+  table4_standard_yolo_known_analysis.md
+  table5_efficiency_latency.md
+  table6_pretrained_yoloworld.md
+```
+
+### Evaluate One YOLO-World Large 3-Class Run
+
+```bash
+.venv/bin/python scripts/evaluate_research_metrics.py \
+  --run-dir runs/yoloworld_bdd10k/20260617_214915_yoloworld_bdd10k_finetune_yolo_l_3class \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model-type yoloworld \
+  --known-classes "car,bus,truck" \
+  --unknown-classes "pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign" \
+  --output-name research_eval \
+  --summary-out runs/yoloworld_l_3class_research_summary.csv \
+  --split val \
+  --imgsz 640 \
+  --batch-size 8 \
+  --conf-thres 0.25 \
+  --iou-thres 0.7 \
+  --device 0 \
+  --workers 8
+```
+
+### Evaluate One Standard YOLO Large 3-Class Run
+
+```bash
+.venv/bin/python scripts/evaluate_research_metrics.py \
+  --run-dir runs/yolo_bdd10k/20260618_214703_yolo_bdd10k_finetune_yolo_3class_l \
+  --data-yaml data/bdd10k/bdd10k.yaml \
+  --model-type yolo \
+  --known-classes "car,bus,truck" \
+  --unknown-classes "pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign" \
+  --output-name research_eval \
+  --summary-out runs/yolo_l_3class_research_summary.csv \
+  --split val \
+  --imgsz 640 \
+  --batch-size 8 \
+  --conf-thres 0.25 \
+  --iou-thres 0.7 \
+  --device 0 \
+  --workers 8
+```
+
+## Pretrained Baselines
+
+### Pure Pretrained YOLO-World
+
+This baseline runs YOLO-World small, medium, and large from pretrained Ultralytics weights only. No BDD10K training or fine-tuning is performed.
 
 ```bash
 bash run_pretrained_yoloworld_bdd10k.sh \
@@ -424,7 +227,7 @@ bash run_pretrained_yoloworld_bdd10k.sh \
   --batch-size 8
 ```
 
-Output utama:
+Outputs:
 
 ```text
 outputs/pretrained_yoloworld_bdd10k/
@@ -438,37 +241,132 @@ outputs/pretrained_yoloworld_bdd10k/
   yolov8l-world/research_eval/
 ```
 
-## 7. Prediction
+For pretrained YOLO-World visualization, all prediction boxes are rendered purple because they are zero-shot prompt detections.
 
-Predict dengan default prompt:
+### Pure Pretrained Standard YOLO
+
+Directly evaluating `yolov8s.pt`, `yolov8m.pt`, or `yolov8l.pt` on `bdd10k.yaml` is **not methodologically valid** for the official research tables because pretrained Standard YOLO uses COCO class IDs, while BDD10K uses a different 10-class ID order.
+
+Use Standard YOLO pretrained weights as training initialization, then evaluate the BDD10K fine-tuned checkpoints with the research evaluator. This is the valid closed-set baseline used in this project.
+
+For qualitative-only inspection of a raw COCO-pretrained YOLO model, use Ultralytics prediction directly and treat it as a non-comparable sanity check:
+
+```bash
+.venv/bin/python - <<'PY'
+from ultralytics import YOLO
+
+model = YOLO("yolov8l.pt")
+model.predict(
+    source="data/bdd10k/images/val",
+    conf=0.25,
+    iou=0.7,
+    imgsz=640,
+    device=0,
+    save=True,
+    project="outputs/pretrained_yolo_bdd10k",
+    name="yolov8l_coco_visual_only",
+)
+PY
+```
+
+Use this output only for visual reference, not for BDD10K mAP comparison.
+
+## Visualization
+
+The visualizer reads `research_eval` outputs and creates side-by-side panels:
+
+```text
+left  : ground truth boxes
+right : prediction boxes
+```
+
+Color convention:
+
+```text
+orange : ground truth
+green  : supervised known-class predictions
+purple : zero-shot/open-vocabulary predictions
+```
+
+### Visualize YOLO-World Large 3-Class
+
+```bash
+.venv/bin/python scripts/visualize_research_eval.py \
+  --run-dir runs/yoloworld_bdd10k/20260617_214915_yoloworld_bdd10k_finetune_yolo_l_3class \
+  --research-dir research_eval \
+  --mode both \
+  --model-type yoloworld \
+  --checkpoint-name best.pt \
+  --sample-count 24 \
+  --conf-thres 0.25 \
+  --iou-thres 0.7 \
+  --imgsz 640 \
+  --device 0
+```
+
+YOLO-World 3-class `all_class` visualizations merge:
+
+```text
+known branch   : fine-tuned 3-class checkpoint
+unknown branch : pretrained YOLO-World zero-shot model
+```
+
+### Visualize Standard YOLO Large 3-Class
+
+```bash
+.venv/bin/python scripts/visualize_research_eval.py \
+  --run-dir runs/yolo_bdd10k/20260618_214703_yolo_bdd10k_finetune_yolo_3class_l \
+  --research-dir research_eval \
+  --mode both \
+  --model-type yolo \
+  --checkpoint-name best.pt \
+  --sample-count 24 \
+  --conf-thres 0.25 \
+  --iou-thres 0.7 \
+  --imgsz 640 \
+  --device 0
+```
+
+For Standard YOLO 3-class, unknown objects cannot appear as true unknown labels because the detection head is closed-set and only contains `car`, `bus`, and `truck`.
+
+### Visualize Pure Pretrained YOLO-World Large
+
+```bash
+.venv/bin/python scripts/visualize_research_eval.py \
+  --run-dir outputs/pretrained_yoloworld_bdd10k/yolov8l-world \
+  --research-dir research_eval \
+  --mode both \
+  --model-type yoloworld \
+  --sample-count 24 \
+  --conf-thres 0.25 \
+  --iou-thres 0.7 \
+  --imgsz 640 \
+  --device 0
+```
+
+Output location:
+
+```text
+<run-dir>/research_eval/visualizations/
+  all_class/
+  unknown_class/
+  visualization_summary.json
+```
+
+## Prediction
+
+YOLO-World prediction with known and unknown branches:
 
 ```bash
 bash run_train_yoloworld_bdd10k.sh \
-  --model runs/yoloworld_bdd10k/yoloworld_bdd10k_finetune/weights/best.pt \
+  --model runs/yoloworld_bdd10k/<run-name>/weights/best.pt \
   --output-dir runs/yoloworld_bdd10k \
   --experiment-name predict_yoloworld_bdd10k \
   --timestamp-output \
   --predict-only \
   --source data/bdd10k/images/val \
-  --conf-thres 0.25 \
-  --unknown-conf-thres 0.05 \
-  --zero-shot-unknown-model yolov8s-world.pt \
-  --iou-thres 0.7 \
-  --device 0
-```
-
-Predict dengan custom prompt:
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --model runs/yoloworld_bdd10k/yoloworld_bdd10k_finetune/weights/best.pt \
-  --output-dir runs/yoloworld_bdd10k \
-  --experiment-name predict_custom_prompt \
-  --timestamp-output \
-  --predict-only \
-  --source path/to/image_or_folder \
-  --known-classes car,bus,truck \
-  --unknown-prompts "person,animal,road debris,traffic cone,object,obstacle,item" \
+  --known-classes "car,bus,truck" \
+  --unknown-prompts "pedestrian,rider,train,motorcycle,bicycle,traffic light,traffic sign" \
   --zero-shot-unknown-model yolov8s-world.pt \
   --conf-thres 0.25 \
   --unknown-conf-thres 0.05 \
@@ -476,109 +374,11 @@ bash run_train_yoloworld_bdd10k.sh \
   --device 0
 ```
 
-Output prediction:
-
-```text
-runs/yoloworld_bdd10k/<experiment-name>/predictions/
-runs/yoloworld_bdd10k/<experiment-name>/predictions_unknown/
-runs/yoloworld_bdd10k/<experiment-name>/predictions/prediction_postprocessed.json
-```
-
-`prediction_postprocessed.json` menggabungkan known dan unknown. Field `source_model` menunjukkan asal bbox:
-
-```text
-fine_tuned_known
-pretrained_zero_shot_unknown
-```
-
-## 8. YOLO Biasa
-
-Pipeline YOLO biasa tersedia untuk baseline supervised detector tanpa prompt dan tanpa unknown zero-shot. Dataset sumber tetap memakai `data/bdd10k/bdd10k.yaml`, training memakai split `train`, sedangkan metric dan visual evaluation memakai split `val`.
-
-Default YOLO biasa juga memakai filter kelas training:
-
-```text
-train-classes: car,bus,truck
-```
-
-Ubah kelas training dengan `--train-classes`, atau gunakan `--skip-filtered-dataset` jika ingin memakai 10 kelas penuh dari `bdd10k.yaml`.
-
-Runner:
-
-```text
-run_train_yolo_bdd10k.sh
-scripts/run_train_yolo_bdd10k.py
-scripts/yolo_bdd10k_pipeline.py
-```
-
-Training tanpa flag:
-
-```bash
-bash run_train_yolo_bdd10k.sh
-```
-
-Training dengan flag:
+Standard YOLO prediction:
 
 ```bash
 bash run_train_yolo_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model yolov8s.pt \
-  --output-dir runs/yolo_bdd10k \
-  --experiment-name yolo_bdd10k_finetune \
-  --timestamp-output \
-  --train-classes car,bus,truck \
-  --epochs 50 \
-  --batch-size 16 \
-  --imgsz 640 \
-  --lr0 1e-4 \
-  --device 0 \
-  --workers 8 \
-  --amp
-```
-
-Smoke test GPU:
-
-```bash
-bash run_train_yolo_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model yolov8n.pt \
-  --output-dir runs/yolo_bdd10k \
-  --experiment-name smoke_yolo_bdd10k \
-  --timestamp-output \
-  --train-classes car,bus,truck \
-  --epochs 1 \
-  --batch-size 2 \
-  --imgsz 320 \
-  --workers 0 \
-  --device 0 \
-  --amp \
-  --patience 1
-```
-
-Eval-only:
-
-```bash
-bash run_train_yolo_bdd10k.sh \
-  --data-yaml data/bdd10k/bdd10k.yaml \
-  --model runs/yolo_bdd10k/<nama-run-training>/weights/best.pt \
-  --output-dir runs/yolo_bdd10k \
-  --experiment-name eval_yolo_bdd10k_finetune \
-  --timestamp-output \
-  --eval-only \
-  --eval-split val \
-  --train-classes car,bus,truck \
-  --imgsz 640 \
-  --batch-size 16 \
-  --device 0 \
-  --sample-source data/bdd10k/images/val \
-  --sample-count 24
-```
-
-Predict-only:
-
-```bash
-bash run_train_yolo_bdd10k.sh \
-  --model runs/yolo_bdd10k/<nama-run-training>/weights/best.pt \
+  --model runs/yolo_bdd10k/<run-name>/weights/best.pt \
   --output-dir runs/yolo_bdd10k \
   --experiment-name predict_yolo_bdd10k \
   --timestamp-output \
@@ -589,204 +389,61 @@ bash run_train_yolo_bdd10k.sh \
   --device 0
 ```
 
-Serial training YOLO biasa untuk beberapa model:
+## Outputs and Logs
 
-```bash
-bash run_train_yolo_bdd10k_serial.sh
-```
-
-Default serial menjalankan:
+Trained YOLO-World runs:
 
 ```text
-subset classes : car,bus,truck
-full classes   : 10 kelas dari data/bdd10k/bdd10k.yaml
-models         : yolov8s.pt,yolov8m.pt,yolov8l.pt
-batch sizes    : 48,32,16
-epochs         : 100
-device         : 0
-```
-
-Custom serial, misalnya subset 5 kelas dan tetap lanjut 10 kelas:
-
-```bash
-SUBSET_CLASSES="car,bus,truck,motorcycle,bicycle" \
-SUBSET_TAG="vehicle_5class" \
-MODELS="yolov8s.pt,yolov8m.pt,yolov8l.pt" \
-BATCH_SIZES="48,32,16" \
-MODEL_TAGS="s,m,l" \
-EPOCHS="100" \
-IMGSZ="640" \
-LR0="1e-4" \
-DEVICE="0" \
-WORKERS="8" \
-AMP="true" \
-bash run_train_yolo_bdd10k_serial.sh
-```
-
-Hanya train 10 kelas tanpa subset:
-
-```bash
-RUN_SUBSET="false" \
-RUN_FULL="true" \
-bash run_train_yolo_bdd10k_serial.sh
-```
-
-Hanya train subset tanpa 10 kelas:
-
-```bash
-RUN_SUBSET="true" \
-RUN_FULL="false" \
-SUBSET_CLASSES="car,bus,truck,traffic light,traffic sign" \
-SUBSET_TAG="road_5class" \
-bash run_train_yolo_bdd10k_serial.sh
-```
-
-Monitor serial YOLO biasa:
-
-```bash
-tail -f serial_yolo_bdd10k.log
-tail -f training.log
-```
-
-Output YOLO biasa:
-
-```text
-runs/yolo_bdd10k/<experiment-name>/
+runs/yoloworld_bdd10k/<experiment-name>/
   configs/
+  dataset_known/
   evaluation/
   logs/
   metrics/
   predictions/
+  predictions_unknown/
+  research_eval/
   weights/
 ```
 
-## 9. Notebook
-
-Notebook utama:
+Trained Standard YOLO runs:
 
 ```text
-notebooks/train_yoloworld_bdd10k.ipynb
+runs/yolo_bdd10k/<experiment-name>/
+  configs/
+  dataset_train_classes/
+  evaluation/
+  logs/
+  metrics/
+  predictions/
+  research_eval/
+  weights/
 ```
 
-Notebook memakai logic yang sama dari `scripts/yoloworld_bdd10k_pipeline.py`. Jika dijalankan tanpa flag, notebook memakai default config.
-
-Execute notebook dari terminal:
-
-```bash
-jupyter nbconvert --to notebook --execute notebooks/train_yoloworld_bdd10k.ipynb \
-  --output executed_train_yoloworld_bdd10k.ipynb
-```
-
-Atau memakai papermill:
-
-```bash
-papermill notebooks/train_yoloworld_bdd10k.ipynb notebooks/executed_train_yoloworld_bdd10k.ipynb
-```
-
-## 10. Export
-
-Export model mengikuti format yang didukung Ultralytics, misalnya `onnx`, `torchscript`, atau `openvino`.
-
-```bash
-bash run_train_yoloworld_bdd10k.sh \
-  --model runs/yoloworld_bdd10k/yoloworld_bdd10k_finetune/weights/best.pt \
-  --predict-only \
-  --source data/bdd10k/images/val \
-  --export \
-  --export-format onnx \
-  --device 0
-```
-
-## 11. Output dan Log
-
-Setiap run disimpan di:
-
-```text
-runs/yoloworld_bdd10k/<experiment-name>/
-```
-
-Isi penting:
-
-```text
-logs/
-  train.log
-  console.log
-configs/
-  args.json
-  config_used.yaml
-  run_summary.json
-  ultralytics_args.yaml
-metrics/
-  training_history.csv
-  metrics_summary.json
-  evaluation.json
-  final_metrics.csv
-  confidence_histogram.csv
-  confidence_histogram.png
-evaluation/
-  images/
-  sample_predictions.json
-weights/
-  best.pt
-  last.pt
-predictions/
-predictions_unknown/
-```
-
-`metrics/training_history.csv` berisi history training per epoch. `metrics/final_metrics.csv` berisi performa akhir. `metrics/confidence_histogram.png` adalah histogram confidence untuk deteksi known dan unknown. `weights/best.pt` dan `weights/last.pt` menyimpan model terbaik dan checkpoint terakhir.
-
-Jika ingin confidence chart dari seluruh val image, jalankan `predict-only` dengan `--source data/bdd10k/images/val`, atau naikkan `--sample-count` pada eval sampai mencakup jumlah gambar val yang ingin dianalisis.
-
-Log utama:
-
-```text
-training.log
-runs/yoloworld_bdd10k/<experiment-name>/logs/train.log
-runs/yoloworld_bdd10k/<experiment-name>/logs/console.log
-```
-
-`training.log` di root selalu ditimpa setiap run baru. `train.log` menyimpan logger pipeline permanen per eksperimen. `console.log` menyimpan stdout/stderr Ultralytics.
-
-Monitor run:
+Monitor a background run:
 
 ```bash
 tail -f training.log
 ```
 
-Lihat run terbaru:
+Find latest runs:
 
 ```bash
 ls -td runs/yoloworld_bdd10k/* | head -1
+ls -td runs/yolo_bdd10k/* | head -1
 ```
 
-Log mencatat command, parsed arguments, dataset yaml, model weight, output dir, experiment name, device, seed, epoch, batch size, image size, learning rate, optimizer, AMP, resume, freeze, hasil train/eval/predict/export, checkpoint, traceback jika error, dan finish marker:
+## Troubleshooting
 
-```text
-Notebook finished. elapsed_seconds=<detik> experiment_dir=<folder_run>
-```
+If CUDA is unavailable, change `--device 0` to `--device cpu` for a small test.
 
-## 12. Troubleshooting
-
-Jika CUDA tidak tersedia tetapi `--device 0` dipakai, pipeline akan memberi error informatif. Gunakan GPU yang benar atau ubah ke `--device cpu` untuk test kecil.
-
-Jika panel kiri `Ground Truth` kosong pada eval val, kemungkinan label `data/bdd10k/labels/val/*.txt` belum dibuat atau tidak cocok dengan image val. Jalankan ulang converter:
+If ground-truth boxes are empty in visualization, regenerate labels:
 
 ```bash
 .venv/bin/python scripts/convert_bdd10k_to_yolo.py \
   --data-root data/bdd10k
 ```
 
-Jika bbox unknown tidak muncul dari checkpoint fine-tuned, gunakan branch zero-shot pretrained default:
+If YOLO-World unknown boxes do not appear in a fine-tuned 3-class visualization, rerun research evaluation and visualization. The current visualizer merges `merged_sources` from `research_metrics_summary.json` so `all_class` can show both known and unknown predictions.
 
-```bash
---zero-shot-unknown-model yolov8s-world.pt --unknown-conf-thres 0.05
-```
-
-Jika ground truth pada panel kiri kosong, pastikan image sample memiliki label pasangan di `data/bdd10k/labels/<split>/<image_name>.txt`.
-
-Jika training atau eval berjalan di background dan ingin dihentikan:
-
-```bash
-ps aux | grep run_train_yoloworld_bdd10k.py
-kill <PID>
-```
+If Standard YOLO 3-class does not show unknown labels, that is expected. It is the intended closed-set limitation baseline.

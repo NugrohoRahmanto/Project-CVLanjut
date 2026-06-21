@@ -17,6 +17,10 @@ from research_evaluation import (
 )
 
 
+KNOWN_PRED_COLOR = (0, 170, 70)
+ZERO_SHOT_PRED_COLOR = (185, 45, 185)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create GT vs prediction visualizations for research_eval outputs.")
     parser.add_argument("--run-dir", required=True, help="Experiment directory containing weights and research_eval.")
@@ -264,14 +268,29 @@ def model_from_source(source_model: str, checkpoint: Path, model_type: str, defa
     return cache[source_model]
 
 
+def resolve_visualization_checkpoint(run_dir: Path, checkpoint_name: str, research_metrics: dict[str, Any]) -> Path:
+    try:
+        return run_dir_checkpoint(run_dir, checkpoint_name)
+    except FileNotFoundError:
+        summary_checkpoint = (research_metrics.get("summary_row") or {}).get("checkpoint")
+        if summary_checkpoint:
+            return Path(str(summary_checkpoint))
+        for mode_info in (research_metrics.get("metrics") or {}).values():
+            source_model = mode_info.get("source_model") if isinstance(mode_info, dict) else None
+            if source_model:
+                return Path(str(source_model))
+        raise
+
+
 def main() -> None:
     args = build_parser().parse_args()
     run_dir = Path(args.run_dir)
     research_root = run_dir / args.research_dir
     research_info = load_research_info(research_root)
     research_metrics = load_research_metrics(research_root)
+    training_config = str((research_metrics.get("summary_row") or {}).get("training_config", ""))
     modes = ["all_class", "unknown_class"] if args.mode == "both" else [args.mode]
-    checkpoint = run_dir_checkpoint(run_dir, args.checkpoint_name)
+    checkpoint = resolve_visualization_checkpoint(run_dir, args.checkpoint_name, research_metrics)
     model_type = infer_model_type(run_dir, args.model_type)
     model = load_model(checkpoint, model_type)
     model_cache: dict[str, Any] = {}
@@ -306,14 +325,14 @@ def main() -> None:
                         "model": known_model,
                         "conf": float((merged_sources.get("known") or {}).get("conf", args.conf_thres)),
                         "class_map": class_id_map(known_order, target_names),
-                        "color": (0, 170, 70),
+                        "color": KNOWN_PRED_COLOR,
                     },
                     {
                         "name": "unknown",
                         "model": unknown_model,
                         "conf": float((merged_sources.get("unknown") or {}).get("conf", args.conf_thres)),
                         "class_map": class_id_map(unknown_order, target_names),
-                        "color": (185, 45, 185),
+                        "color": ZERO_SHOT_PRED_COLOR,
                     },
                 ]
             )
@@ -332,7 +351,7 @@ def main() -> None:
                     "model": mode_model,
                     "conf": mode_conf,
                     "class_map": None,
-                    "color": (0, 170, 70),
+                    "color": ZERO_SHOT_PRED_COLOR if training_config == "pretrained" else KNOWN_PRED_COLOR,
                 }
             )
         rows.extend(
