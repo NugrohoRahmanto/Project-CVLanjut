@@ -139,18 +139,55 @@ def sample_images(dataset_yaml: Path, sample_count: int, start_index: int) -> tu
     return images[:sample_count], dataset_root, split, names, label_class_ids
 
 
+def class_id_map(source_order: list[str], target_names: dict[int, str]) -> dict[int, int]:
+    target_by_name = {name: class_id for class_id, name in target_names.items()}
+    return {source_id: target_by_name[name] for source_id, name in enumerate(source_order) if name in target_by_name}
+
+
+def draw_predictions(
+    image: Any,
+    result: Any,
+    names: dict[int, str],
+    label_class_ids: set[int],
+    mode: str,
+    filter_pred_to_gt_classes: bool,
+    class_map: dict[int, int] | None = None,
+    color: tuple[int, int, int] = (0, 170, 70),
+) -> int:
+    boxes = getattr(result, "boxes", None)
+    if boxes is None:
+        return 0
+    pred_count = 0
+    for box, conf_value, class_value in zip(boxes.xyxy.cpu().tolist(), boxes.conf.cpu().tolist(), boxes.cls.cpu().tolist()):
+        source_class_id = int(class_value)
+        class_id = class_map.get(source_class_id, source_class_id) if class_map else source_class_id
+        if filter_pred_to_gt_classes and mode == "unknown_class" and class_id not in label_class_ids:
+            continue
+        label = f"{names.get(class_id, str(class_id))} {float(conf_value):.2f}"
+        draw_box(image, [float(value) for value in box], label, color)
+        pred_count += 1
+    return pred_count
+
+
+def move_model_to_predict_device(model: Any, device: str) -> None:
+    if not device or device == "cpu":
+        return
+    module = getattr(model, "model", None)
+    if module is not None and hasattr(module, "to"):
+        module.to(f"cuda:{device}" if str(device).isdigit() else device)
+
+
 def visualize_mode(
-    model: Any,
     mode: str,
     dataset_yaml: Path,
     output_root: Path,
     sample_count: int,
     start_index: int,
-    conf: float,
     iou: float,
     imgsz: int,
     device: str,
     filter_pred_to_gt_classes: bool,
+    prediction_branches: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     import cv2
 
@@ -159,15 +196,23 @@ def visualize_mode(
         raise RuntimeError(f"No images found for visualization dataset: {dataset_yaml}")
     output_dir = output_root / mode
     output_dir.mkdir(parents=True, exist_ok=True)
-    predictions = model.predict(
-        source=[str(path) for path in images],
-        conf=conf,
-        iou=iou,
-        imgsz=imgsz,
-        device=device,
-        save=False,
-        verbose=False,
-    )
+    branch_predictions = []
+    for branch in prediction_branches:
+        move_model_to_predict_device(branch["model"], device)
+        branch_predictions.append(
+            {
+                **branch,
+                "predictions": branch["model"].predict(
+                    source=[str(path) for path in images],
+                    conf=branch["conf"],
+                    iou=iou,
+                    imgsz=imgsz,
+                    device=device,
+                    save=False,
+                    verbose=False,
+                ),
+            }
+        )
     rows: list[dict[str, Any]] = []
     for index, image_path in enumerate(images):
         original = cv2.imread(str(image_path))
@@ -177,16 +222,22 @@ def visualize_mode(
         pred_panel = original.copy()
         gt_count, _ = draw_ground_truth(gt_panel, image_path, dataset_root, split, names)
         pred_count = 0
-        result = predictions[index] if index < len(predictions) else None
-        boxes = getattr(result, "boxes", None)
-        if boxes is not None:
-            for box, conf_value, class_value in zip(boxes.xyxy.cpu().tolist(), boxes.conf.cpu().tolist(), boxes.cls.cpu().tolist()):
-                class_id = int(class_value)
-                if filter_pred_to_gt_classes and mode == "unknown_class" and class_id not in label_class_ids:
-                    continue
-                label = f"{names.get(class_id, str(class_id))} {float(conf_value):.2f}"
-                draw_box(pred_panel, [float(value) for value in box], label, (0, 170, 70))
-                pred_count += 1
+        branch_counts: dict[str, int] = {}
+        for branch in branch_predictions:
+            predictions = branch["predictions"]
+            result = predictions[index] if index < len(predictions) else None
+            count = draw_predictions(
+                image=pred_panel,
+                result=result,
+                names=names,
+                label_class_ids=label_class_ids,
+                mode=mode,
+                filter_pred_to_gt_classes=filter_pred_to_gt_classes,
+                class_map=branch.get("class_map"),
+                color=branch.get("color", (0, 170, 70)),
+            )
+            branch_counts[str(branch.get("name", "prediction"))] = count
+            pred_count += count
         add_title(gt_panel, f"Ground Truth {mode} ({gt_count})")
         add_title(pred_panel, f"Prediction ({pred_count})")
         combined = cv2.hconcat([gt_panel, pred_panel])
@@ -199,9 +250,18 @@ def visualize_mode(
                 "output": str(out_path),
                 "ground_truth_boxes": gt_count,
                 "prediction_boxes": pred_count,
+                "prediction_branch_boxes": branch_counts,
             }
         )
     return rows
+
+
+def model_from_source(source_model: str, checkpoint: Path, model_type: str, default_model: Any, cache: dict[str, Any]) -> Any:
+    if not source_model or source_model == str(checkpoint):
+        return default_model
+    if source_model not in cache:
+        cache[source_model] = load_model(Path(source_model), model_type)
+    return cache[source_model]
 
 
 def main() -> None:
@@ -214,6 +274,7 @@ def main() -> None:
     checkpoint = run_dir_checkpoint(run_dir, args.checkpoint_name)
     model_type = infer_model_type(run_dir, args.model_type)
     model = load_model(checkpoint, model_type)
+    model_cache: dict[str, Any] = {}
     output_root = Path(args.output_dir) if args.output_dir else research_root / "visualizations"
     rows: list[dict[str, Any]] = []
     for mode in modes:
@@ -221,27 +282,71 @@ def main() -> None:
         metric_info = (research_metrics.get("metrics") or {}).get(mode, {})
         dataset_yaml = Path(mode_info["yaml"])
         class_order = mode_info.get("class_order") or research_info.get("evaluation_class_order") or []
-        mode_model = model
-        mode_conf = args.conf_thres
-        source_model = metric_info.get("source_model")
-        if model_type == "yoloworld" and source_model and source_model != str(checkpoint):
-            mode_model = load_model(Path(source_model), model_type)
-            mode_conf = float(metric_info.get("conf", args.conf_thres))
-        if model_type == "yoloworld" and class_order:
-            set_yoloworld_classes(mode_model, list(class_order))
+        target_names = normalize_names(load_yaml(dataset_yaml).get("names", {}))
+        prediction_branches: list[dict[str, Any]] = []
+
+        merged_sources = metric_info.get("merged_sources") or {}
+        if mode == "all_class" and model_type == "yoloworld" and merged_sources:
+            known_info = research_info["datasets"].get("known_class") or {}
+            unknown_info = research_info["datasets"].get("unknown_class") or {}
+            known_order = list(known_info.get("class_order") or [])
+            unknown_order = list(unknown_info.get("class_order") or [])
+            known_source = (merged_sources.get("known") or {}).get("source_model", "")
+            unknown_source = (merged_sources.get("unknown") or {}).get("source_model", "")
+            known_model = model_from_source(str(known_source), checkpoint, model_type, model, model_cache)
+            unknown_model = model_from_source(str(unknown_source), checkpoint, model_type, model, model_cache)
+            if known_order:
+                set_yoloworld_classes(known_model, known_order)
+            if unknown_order:
+                set_yoloworld_classes(unknown_model, unknown_order)
+            prediction_branches.extend(
+                [
+                    {
+                        "name": "known",
+                        "model": known_model,
+                        "conf": float((merged_sources.get("known") or {}).get("conf", args.conf_thres)),
+                        "class_map": class_id_map(known_order, target_names),
+                        "color": (0, 170, 70),
+                    },
+                    {
+                        "name": "unknown",
+                        "model": unknown_model,
+                        "conf": float((merged_sources.get("unknown") or {}).get("conf", args.conf_thres)),
+                        "class_map": class_id_map(unknown_order, target_names),
+                        "color": (185, 45, 185),
+                    },
+                ]
+            )
+        else:
+            mode_model = model
+            mode_conf = args.conf_thres
+            source_model = metric_info.get("source_model")
+            if model_type == "yoloworld" and source_model and source_model != str(checkpoint):
+                mode_model = model_from_source(str(source_model), checkpoint, model_type, model, model_cache)
+                mode_conf = float(metric_info.get("conf", args.conf_thres))
+            if model_type == "yoloworld" and class_order:
+                set_yoloworld_classes(mode_model, list(class_order))
+            prediction_branches.append(
+                {
+                    "name": mode,
+                    "model": mode_model,
+                    "conf": mode_conf,
+                    "class_map": None,
+                    "color": (0, 170, 70),
+                }
+            )
         rows.extend(
             visualize_mode(
-                model=mode_model,
                 mode=mode,
                 dataset_yaml=dataset_yaml,
                 output_root=output_root,
                 sample_count=args.sample_count,
                 start_index=args.start_index,
-                conf=mode_conf,
                 iou=args.iou_thres,
                 imgsz=args.imgsz,
                 device=args.device,
                 filter_pred_to_gt_classes=args.filter_pred_to_gt_classes,
+                prediction_branches=prediction_branches,
             )
         )
     summary_path = output_root / "visualization_summary.json"
