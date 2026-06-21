@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex main"] 0 "main.aux" "main.bbl" "main" 1782053930.34574 0
+["bibtex main"] 1782056837.94045 "main.aux" "main.bbl" "main" 1782056839.00379 0
+  "./references.bib" 1782046618.53092 16655 f81c0ab4c0b1bcabe005d8322a676264 ""
   "/usr/share/texlive/texmf-dist/bibtex/bst/ieeetran/IEEEtran.bst" 1440712899 57748 7c8250ecf02814ce6ddc0cdbb63df1dd ""
-  "References.bib" 0 -1 0 ""
-  "main.aux" 0 -1 0 "pdflatex"
+  "main.aux" 1782056838.95415 4940 973f1c0a5a4cb0500ed360d3d59e0a6e "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1782053930.12764 "/workspace/Project-CVLanjut/file-tex/main.tex" "main.pdf" "main" 1782053930.3459 0
+["pdflatex"] 1782056837.95478 "/workspace/Project-CVLanjut/file-tex/main.tex" "main.pdf" "main" 1782056839.00393 0
   "/etc/texmf/web2c/texmf.cnf" 1782024830.92967 475 c0e671620eb5563b2130f56340a5fde8 ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -72,9 +72,11 @@
   "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty" 1686341992 88371 d84032c0f422c3d1e282266c01bef237 ""
   "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty" 1686341992 4474 b811654f4bf125f11506d13d13647efb ""
   "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty" 1686341992 2444 0d0c1ee65478277e8015d65b86983da2 ""
+  "/usr/share/texlive/texmf-dist/tex/latex/base/fixltx2e.sty" 1705352648 15509 4696b735c8b9272cae2e1d1f959380c9 ""
   "/usr/share/texlive/texmf-dist/tex/latex/base/ifthen.sty" 1705352648 5319 2b738d02ce36ada6dcdd9534940db0ee ""
   "/usr/share/texlive/texmf-dist/tex/latex/base/textcomp.sty" 1705352648 2894 fc64867f9d198785eabe71a88276a9cb ""
   "/usr/share/texlive/texmf-dist/tex/latex/cite/cite.sty" 1425427964 26218 19edeff8cdc2bcb704e8051dc55eb5a7 ""
+  "/usr/share/texlive/texmf-dist/tex/latex/dblfloatfix/dblfloatfix.sty" 1359502469 7429 c8f2321c9dcd3421eb76564b0d179fe3 ""
   "/usr/share/texlive/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty" 1579991033 13886 d1306dcf79a944f6988e688c1785f9ce ""
   "/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/color.cfg" 1459978653 1213 620bba36b25224fa9b7e1ccb4ecb76fd ""
   "/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg" 1465944070 1224 978390e9c2234eab29404bc21b268d1e ""
@@ -95,10 +97,12 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1782026935.1142 165012 f177baa1c39a3ebd62c3096a43521a0d ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1782026955 6831094 fb1273bce83a093b075b1f51e3baef37 ""
-  "/workspace/Project-CVLanjut/file-tex/main.tex" 1782053929.52401 24726 07d936175a0d0eebc1b24dc1deeb1960 ""
-  "main.aux" 1782053930.29144 3631 c52f8e4da8c021de6d203616571fb0f2 "pdflatex"
-  "main.bbl" 1782026996.5666 3799 96c5ad33e47f33c7af614946653898b1 "bibtex main"
-  "main.tex" 1782053929.52401 24726 07d936175a0d0eebc1b24dc1deeb1960 ""
+  "/workspace/Project-CVLanjut/file-tex/main.tex" 1782056835.56543 25616 21abb67ddded2709c83a3be471212b3b ""
+  "figs/Flowchart.png" 1782055813.43013 2870879 01de7f46f7221839443865e64af72473 ""
+  "figs/Flowchart_comparison.png" 1782055384.65121 2163201 a11c9ec43dbe1782936015beb410921d ""
+  "main.aux" 1782056838.95415 4940 973f1c0a5a4cb0500ed360d3d59e0a6e "pdflatex"
+  "main.bbl" 1782056837.95258 8055 3a8bf6c6f4effe0e8c578a260d265534 "bibtex main"
+  "main.tex" 1782056835.56543 25616 21abb67ddded2709c83a3be471212b3b ""
   (generated)
   "main.aux"
   "main.log"
