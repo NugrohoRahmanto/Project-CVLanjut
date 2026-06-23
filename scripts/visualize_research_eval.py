@@ -35,6 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--device", default="0")
     parser.add_argument("--filter-pred-to-gt-classes", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--hybrid-all-class",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="For YOLO-World all_class visualizations, merge known and unknown branches when research_eval provides merged_sources.",
+    )
     parser.add_argument("--output-dir", default="", help="Default: <run-dir>/<research-dir>/visualizations")
     return parser
 
@@ -305,7 +311,7 @@ def main() -> None:
         prediction_branches: list[dict[str, Any]] = []
 
         merged_sources = metric_info.get("merged_sources") or {}
-        if mode == "all_class" and model_type == "yoloworld" and merged_sources:
+        if mode == "all_class" and model_type == "yoloworld" and merged_sources and args.hybrid_all_class:
             known_info = research_info["datasets"].get("known_class") or {}
             unknown_info = research_info["datasets"].get("unknown_class") or {}
             known_order = list(known_info.get("class_order") or [])

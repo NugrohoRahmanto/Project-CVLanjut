@@ -2,13 +2,13 @@
 set -euo pipefail
 
 PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
-MODEL="${MODEL:-yolov8l-world.pt}"
+MODEL="${MODEL:-yolov8s-world.pt}"
 TEACHER_MODEL="${TEACHER_MODEL:-$MODEL}"
 DEVICE="${DEVICE:-0}"
-EPOCHS="${EPOCHS:-100}"
+EPOCHS="${EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 IMG_SIZE="${IMG_SIZE:-640}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-yoloworld_bdd10k_retention_yolo_l_3class}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-yoloworld_bdd10k_retention_yolo_s_3class}"
 
 "$PYTHON_BIN" scripts/yoloworld_bdd10k_retention_pipeline.py \
   --data-yaml data/bdd10k/bdd10k.yaml \
