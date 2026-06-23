@@ -203,6 +203,23 @@ def prompts_for_spec(spec: ModelSpec, user_prompts: list[str], custom_prompts_fo
     return user_prompts
 
 
+def split_hybrid_prompts(user_prompts: list[str]) -> tuple[list[str], list[str]]:
+    known_lookup = {name.lower(): name for name in BDD10K_KNOWN_PROMPTS}
+    known: list[str] = []
+    unknown: list[str] = []
+    for prompt in user_prompts:
+        normalized = prompt.lower()
+        if normalized in known_lookup:
+            known.append(known_lookup[normalized])
+        else:
+            unknown.append(prompt)
+    return known, unknown
+
+
+def pretrained_world_weight_for_scale(scale: str) -> str:
+    return f"yolov8{scale}-world.pt"
+
+
 def resolve_weight(weight: str) -> str:
     path = ROOT / weight
     return str(path) if path.exists() else weight
@@ -415,32 +432,47 @@ def run_inference(
         LOGGER.info("Model start key=%s label=%s kind=%s weight=%s", spec.key, spec.label, spec.kind, spec.weight)
         model = load_model(spec.kind, spec.weight)
         if spec.scheme == "yoloworld_3class" and not custom_prompts_for_all_yoloworld:
+            known_prompts, unknown_prompts = split_hybrid_prompts(prompts)
+            unknown_weight = pretrained_world_weight_for_scale(spec.scale)
             LOGGER.info(
-                "Eval-style YOLO-World 3-class merge enabled key=%s known_model=%s unknown_model=yolov8s-world.pt",
+                "Eval-style YOLO-World 3-class merge enabled key=%s known_model=%s unknown_model=%s known_prompts=%s unknown_prompts=%s",
                 spec.key,
                 spec.weight,
+                unknown_weight,
+                known_prompts,
+                unknown_prompts,
             )
-            set_yoloworld_prompts(model, BDD10K_KNOWN_PROMPTS, device)
-            known_detections = predict_detections_for_model(
-                model=model,
-                spec=spec,
-                source_paths=source_paths,
-                imgsz=imgsz,
-                iou=iou,
-                device=device,
-                color=(0, 170, 70),
-            )
-            unknown_model = load_model("yoloworld", "yolov8s-world.pt")
-            set_yoloworld_prompts(unknown_model, BDD10K_UNKNOWN_PROMPTS, device)
-            unknown_detections = predict_detections_for_model(
-                model=unknown_model,
-                spec=spec,
-                source_paths=source_paths,
-                imgsz=imgsz,
-                iou=iou,
-                device=device,
-                color=(185, 45, 185),
-            )
+            known_detections = [[] for _ in source_paths]
+            if known_prompts:
+                set_yoloworld_prompts(model, known_prompts, device)
+                known_detections = predict_detections_for_model(
+                    model=model,
+                    spec=spec,
+                    source_paths=source_paths,
+                    imgsz=imgsz,
+                    iou=iou,
+                    device=device,
+                    color=(0, 170, 70),
+                )
+            else:
+                LOGGER.info("Skipping hybrid known branch key=%s because user prompt has no known classes.", spec.key)
+
+            unknown_detections = [[] for _ in source_paths]
+            if unknown_prompts:
+                unknown_model = load_model("yoloworld", unknown_weight)
+                set_yoloworld_prompts(unknown_model, unknown_prompts, device)
+                unknown_detections = predict_detections_for_model(
+                    model=unknown_model,
+                    spec=spec,
+                    source_paths=source_paths,
+                    imgsz=imgsz,
+                    iou=iou,
+                    device=device,
+                    color=(185, 45, 185),
+                )
+            else:
+                LOGGER.info("Skipping hybrid unknown branch key=%s because user prompt has no unknown classes.", spec.key)
+
             frame_detections = merge_frame_detections(known_detections, unknown_detections)
             outputs[spec.key] = frame_detections
             log_detection_summary(spec, frame_detections)
