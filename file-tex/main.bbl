@@ -95,14 +95,6 @@ J.~Liu, Z.~Wang, L.~Ma, C.~Fang, T.~Bai, X.~Zhang, J.~Liu, and Z.~Chen, ``Benchm
 \bibitem{Chhipa2024Open-Vocabulary}
 P.~C. Chhipa, K.~De, M.~S. Chippa, R.~Saini, and M.~Liwicki, ``Open-vocabulary object detectors: Robustness challenges under distribution shifts,'' pp. 62--79, 2024.
 
-\bibitem{agronomy14122830}
-\BIBentryALTinterwordspacing
-C.~C. Mullins, T.~J. Esau, Q.~U. Zaman, C.~L. Toombs, and P.~J. Hennessy, ``Leveraging zero-shot detection mechanisms to accelerate image annotation for machine learning in wild blueberry,'' \emph{Agronomy}, vol.~14, no.~12, 2024. [Online]. Available: \url{https://www.mdpi.com/2073-4395/14/12/2830}
-\BIBentrySTDinterwordspacing
-
-\bibitem{Tang2025Prompt}
-Y.~Tang, W.~Han, M.~Liu, and Lei, ``Prompt-guided {AI} analytics for manufacturing digital twins: Adapting {YOLO-World} to industrial object detection,'' \emph{JAIAA}, vol.~3, no.~1, pp. 60--79, mar 2025.
-
 \bibitem{10605392}
 D.~Gupta, R.~D. Lee, and L.~Wynter, ``On efficient object-detection nas for adas on edge devices,'' in \emph{2024 IEEE Conference on Artificial Intelligence (CAI)}, 2024, pp. 1005--1010.
 
@@ -111,5 +103,21 @@ D.~Geever, T.~Brophy, I.~A. Shah, E.~Ward, B.~Deegan, M.~Glavin, and E.~Jones, `
 
 \bibitem{10550965}
 C.~Li, G.~Tan, C.~Wu, and M.~Li, ``Yolov7-vd: An algorithm for vehicle detection in complex environments,'' in \emph{2023 4th International Conference on Computer, Big Data and Artificial Intelligence (ICCBD+AI)}, 2023, pp. 743--747.
+
+\bibitem{bdd100kModelZoo}
+{BDD100K Model Zoo Contributors}, ``{BDD100K Model Zoo: Object Detection Models},'' \url{https://github.com/SysCV/bdd100k-models/tree/main/det}, 2021, accessed: 2026-06-22.
+
+\bibitem{agronomy14122830}
+\BIBentryALTinterwordspacing
+C.~C. Mullins, T.~J. Esau, Q.~U. Zaman, C.~L. Toombs, and P.~J. Hennessy, ``Leveraging zero-shot detection mechanisms to accelerate image annotation for machine learning in wild blueberry,'' \emph{Agronomy}, vol.~14, no.~12, 2024. [Online]. Available: \url{https://www.mdpi.com/2073-4395/14/12/2830}
+\BIBentrySTDinterwordspacing
+
+\bibitem{Tang2025Prompt}
+Y.~Tang, W.~Han, M.~Liu, and Lei, ``Prompt-guided {AI} analytics for manufacturing digital twins: Adapting {YOLO-World} to industrial object detection,'' \emph{JAIAA}, vol.~3, no.~1, pp. 60--79, mar 2025.
+
+\bibitem{paperyolo-world}
+\BIBentryALTinterwordspacing
+T.~Cheng, L.~Song, Y.~Ge, W.~Liu, X.~Wang, and Y.~Shan, ``Yolo-world: Real-time open-vocabulary object detection,'' 2024. [Online]. Available: \url{https://arxiv.org/abs/2401.17270}
+\BIBentrySTDinterwordspacing
 
 \end{thebibliography}

@@ -10,3 +10,4 @@ tqdm
 notebook
 nbconvert
 papermill
+streamlit

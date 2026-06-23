@@ -101,6 +101,8 @@ def metric_cells(row: dict[str, Any], prefix: str) -> dict[str, str]:
     return {
         "$mAP_{50}$": fmt(row.get(f"{prefix}_mAP50")),
         "$mAP_{50-95}$": fmt(row.get(f"{prefix}_mAP50_95")),
+        "mAP": fmt(row.get(f"{prefix}_mAP")),
+        "mIoU": fmt(row.get(f"{prefix}_mIoU")),
         "Precision": fmt(row.get(f"{prefix}_precision")),
         "Recall": fmt(row.get(f"{prefix}_recall")),
         "F1-Score": fmt(row.get(f"{prefix}_f1")),
@@ -180,6 +182,8 @@ def write_tables(out_dir: Path, rows: list[dict[str, Any]], unknown_classes: lis
         "Evaluation Target",
         "$mAP_{50}$",
         "$mAP_{50-95}$",
+        "mAP",
+        "mIoU",
         "Precision",
         "Recall",
         "F1-Score",

@@ -17,6 +17,7 @@ dependencies = [
   "notebook",
   "nbconvert",
   "papermill",
+  "streamlit",
 ]
 
 [tool.uv]

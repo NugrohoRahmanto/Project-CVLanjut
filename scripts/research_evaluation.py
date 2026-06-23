@@ -283,6 +283,8 @@ def summarize_metrics(metrics: Any) -> dict[str, Any]:
         "f1": f1_score(precision, recall),
         "mAP50": map50,
         "mAP50-95": map50_95,
+        "mAP": map50_95,
+        "mIoU": None,
         "speed": to_serializable(getattr(metrics, "speed", {})),
         "per_class": per_class,
         "raw_results": data,
@@ -319,6 +321,7 @@ def extract_per_class_metrics(metrics: Any, names: dict[int, str]) -> dict[str, 
         "recall": list_float_attr(box, "r"),
         "mAP50": list_float_attr(box, "ap50"),
         "mAP50-95": list_float_attr(box, "ap"),
+        "mAP": list_float_attr(box, "ap"),
     }
     rows: dict[str, dict[str, float | None]] = {}
     for class_id, name in names.items():
@@ -345,12 +348,161 @@ def model_parameter_count(model: Any) -> int | None:
         return None
 
 
+def xywhn_to_xyxy(values: list[float]) -> list[float]:
+    x, y, w, h = values[:4]
+    return [x - w / 2.0, y - h / 2.0, x + w / 2.0, y + h / 2.0]
+
+
+def box_iou(box_a: list[float], box_b: list[float]) -> float:
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter_w = max(0.0, x2 - x1)
+    inter_h = max(0.0, y2 - y1)
+    inter = inter_w * inter_h
+    if inter <= 0.0:
+        return 0.0
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    union = area_a + area_b - inter
+    return inter / union if union > 0.0 else 0.0
+
+
+def read_ground_truth_boxes(label_path: Path) -> list[dict[str, Any]]:
+    if not label_path.exists():
+        return []
+    boxes = []
+    for line in label_path.read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        try:
+            cls = int(float(parts[0]))
+            xyxy = xywhn_to_xyxy([float(value) for value in parts[1:5]])
+        except ValueError:
+            continue
+        boxes.append({"cls": cls, "box": xyxy})
+    return boxes
+
+
+def prediction_boxes_from_result(result: Any) -> list[dict[str, Any]]:
+    boxes_obj = getattr(result, "boxes", None)
+    if boxes_obj is None:
+        return []
+    cls_values = getattr(boxes_obj, "cls", None)
+    xyxyn_values = getattr(boxes_obj, "xyxyn", None)
+    if cls_values is None or xyxyn_values is None:
+        return []
+    try:
+        if hasattr(cls_values, "detach"):
+            cls_values = cls_values.detach().cpu()
+        if hasattr(xyxyn_values, "detach"):
+            xyxyn_values = xyxyn_values.detach().cpu()
+        cls_list = cls_values.tolist()
+        xyxyn_list = xyxyn_values.tolist()
+    except Exception:
+        return []
+    boxes = []
+    for cls, box in zip(cls_list, xyxyn_list):
+        boxes.append({"cls": int(cls), "box": [float(value) for value in box[:4]]})
+    return boxes
+
+
+def mean_iou_for_model(
+    model: Any,
+    data_yaml: Path | str,
+    class_order: list[str],
+    split: str = "val",
+    imgsz: int = 640,
+    conf: float = 0.25,
+    iou: float = 0.7,
+    device: str = "0",
+    batch: int = 8,
+    workers: int = 8,
+    project: Path | None = None,
+    name: str = "miou",
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    config = load_yaml(Path(data_yaml))
+    image_root = resolve_split_path(Path(data_yaml), config, split)
+    label_root = label_root_from_image_root(image_root)
+    images = find_images(image_root)
+    if not images:
+        return {"mIoU": None, "per_class": {}, "matches": 0}
+
+    per_class_ious: dict[str, list[float]] = {name: [] for name in class_order}
+    matched_ious: list[float] = []
+    try:
+        results = model.predict(
+            source=str(image_root),
+            imgsz=imgsz,
+            conf=conf,
+            iou=iou,
+            device=device,
+            batch=batch,
+            workers=workers,
+            project=str(project) if project else None,
+            name=name,
+            exist_ok=True,
+            verbose=False,
+            stream=True,
+        )
+        result_by_path = {Path(getattr(result, "path", "")).resolve(): result for result in results}
+    except Exception as exc:
+        if logger:
+            logger.warning("mIoU prediction pass failed for %s: %s", data_yaml, exc)
+        return {"mIoU": None, "per_class": {}, "matches": 0, "error": str(exc)}
+
+    for image in images:
+        result = result_by_path.get(image.resolve())
+        if result is None:
+            continue
+        gt_boxes = read_ground_truth_boxes(label_path_for_image(image, image_root, label_root))
+        pred_boxes = prediction_boxes_from_result(result)
+        used_pred: set[int] = set()
+        for gt in gt_boxes:
+            best_idx = -1
+            best_iou = 0.0
+            for idx, pred in enumerate(pred_boxes):
+                if idx in used_pred or pred["cls"] != gt["cls"]:
+                    continue
+                candidate_iou = box_iou(gt["box"], pred["box"])
+                if candidate_iou > best_iou:
+                    best_iou = candidate_iou
+                    best_idx = idx
+            if best_idx >= 0:
+                used_pred.add(best_idx)
+                matched_ious.append(best_iou)
+                class_name = class_order[gt["cls"]] if 0 <= gt["cls"] < len(class_order) else str(gt["cls"])
+                per_class_ious.setdefault(class_name, []).append(best_iou)
+
+    per_class = {
+        name: (sum(values) / len(values) if values else None)
+        for name, values in per_class_ious.items()
+    }
+    return {
+        "mIoU": sum(matched_ious) / len(matched_ious) if matched_ious else 0.0,
+        "per_class": per_class,
+        "matches": len(matched_ious),
+    }
+
+
+def attach_miou(summary: dict[str, Any], miou_result: dict[str, Any]) -> dict[str, Any]:
+    summary["mIoU"] = miou_result.get("mIoU")
+    per_class_miou = miou_result.get("per_class") or {}
+    for name, value in per_class_miou.items():
+        summary.setdefault("per_class", {}).setdefault(name, {})["mIoU"] = value
+    summary.setdefault("raw_results", {})["mIoU_result"] = miou_result
+    return summary
+
+
 def zero_class_metrics() -> dict[str, float]:
-    return {"precision": 0.0, "recall": 0.0, "mAP50": 0.0, "mAP50-95": 0.0, "f1": 0.0}
+    return {"precision": 0.0, "recall": 0.0, "mAP50": 0.0, "mAP50-95": 0.0, "mAP": 0.0, "mIoU": 0.0, "f1": 0.0}
 
 
 def none_class_metrics() -> dict[str, float | None]:
-    return {"precision": None, "recall": None, "mAP50": None, "mAP50-95": None, "f1": None}
+    return {"precision": None, "recall": None, "mAP50": None, "mAP50-95": None, "mAP": None, "mIoU": None, "f1": None}
 
 
 def zero_summary_for_classes(class_order: list[str], class_counts: dict[str, int] | None = None, note: str = "") -> dict[str, Any]:
@@ -364,6 +516,8 @@ def zero_summary_for_classes(class_order: list[str], class_counts: dict[str, int
         "f1": 0.0,
         "mAP50": 0.0,
         "mAP50-95": 0.0,
+        "mAP": 0.0,
+        "mIoU": 0.0,
         "speed": {},
         "per_class": per_class,
         "raw_results": {"note": note} if note else {},
@@ -389,6 +543,8 @@ def expand_known_summary_to_all_classes(
         "f1": f1_score(precision, recall),
         "mAP50": (known_summary.get("mAP50") or 0.0) * scale,
         "mAP50-95": (known_summary.get("mAP50-95") or 0.0) * scale,
+        "mAP": (known_summary.get("mAP") or known_summary.get("mAP50-95") or 0.0) * scale,
+        "mIoU": (known_summary.get("mIoU") or 0.0) * scale,
         "speed": known_summary.get("speed", {}),
         "per_class": {},
         "raw_results": {
@@ -453,6 +609,8 @@ def merge_known_and_unknown_summary(
         "f1": f1_score(precision, recall),
         "mAP50": average("mAP50"),
         "mAP50-95": average("mAP50-95"),
+        "mAP": average("mAP"),
+        "mIoU": average("mIoU"),
         "speed": known_summary.get("speed", {}),
         "per_class": per_class,
         "raw_results": {
@@ -479,11 +637,15 @@ def save_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "checkpoint",
         "all_mAP50",
         "all_mAP50_95",
+        "all_mAP",
+        "all_mIoU",
         "all_precision",
         "all_recall",
         "all_f1",
         "unknown_mAP50",
         "unknown_mAP50_95",
+        "unknown_mAP",
+        "unknown_mIoU",
         "unknown_precision",
         "unknown_recall",
         "unknown_f1",
@@ -576,6 +738,22 @@ def evaluate_research_metrics(
                     exist_ok=True,
                 )
                 known_summary = summarize_metrics(known_metrics)
+                known_miou = mean_iou_for_model(
+                    model=model,
+                    data_yaml=known_info["yaml"],
+                    class_order=list(known_info.get("class_order") or trained_classes or known_classes or DEFAULT_KNOWN_CLASSES),
+                    split="val",
+                    imgsz=imgsz,
+                    conf=conf,
+                    iou=iou,
+                    device=device,
+                    batch=batch,
+                    workers=workers,
+                    project=output_dir,
+                    name="known_class_for_all_miou",
+                    logger=logger,
+                )
+                known_summary = attach_miou(known_summary, known_miou)
                 summary = expand_known_summary_to_all_classes(
                     known_summary=known_summary,
                     all_class_order=list(mode_info.get("class_order") or eval_order),
@@ -633,12 +811,29 @@ def evaluate_research_metrics(
             name=mode,
             exist_ok=True,
         )
+        summary = summarize_metrics(metrics)
+        miou_result = mean_iou_for_model(
+            model=eval_model,
+            data_yaml=mode_info["yaml"],
+            class_order=list(mode_info.get("class_order") or eval_order),
+            split="val",
+            imgsz=imgsz,
+            conf=eval_conf,
+            iou=iou,
+            device=device,
+            batch=batch,
+            workers=workers,
+            project=output_dir,
+            name=f"{mode}_miou",
+            logger=logger,
+        )
+        summary = attach_miou(summary, miou_result)
         metrics_by_mode[mode] = {
             "source_model": source_model,
             "conf": eval_conf,
             "parameters": model_parameter_count(eval_model),
             "raw": to_serializable(metrics),
-            "summary": summarize_metrics(metrics),
+            "summary": summary,
         }
         save_json(output_dir / f"{mode}_metrics.json", metrics_by_mode[mode])
         if logger:
@@ -684,11 +879,15 @@ def evaluate_research_metrics(
         "checkpoint": str(checkpoint) if checkpoint else "",
         "all_mAP50": all_summary.get("mAP50"),
         "all_mAP50_95": all_summary.get("mAP50-95"),
+        "all_mAP": all_summary.get("mAP") if all_summary.get("mAP") is not None else all_summary.get("mAP50-95"),
+        "all_mIoU": all_summary.get("mIoU"),
         "all_precision": all_summary.get("precision"),
         "all_recall": all_summary.get("recall"),
         "all_f1": all_summary.get("f1"),
         "unknown_mAP50": unknown_summary.get("mAP50"),
         "unknown_mAP50_95": unknown_summary.get("mAP50-95"),
+        "unknown_mAP": unknown_summary.get("mAP") if unknown_summary.get("mAP") is not None else unknown_summary.get("mAP50-95"),
+        "unknown_mIoU": unknown_summary.get("mIoU"),
         "unknown_precision": unknown_summary.get("precision"),
         "unknown_recall": unknown_summary.get("recall"),
         "unknown_f1": unknown_summary.get("f1"),

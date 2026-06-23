@@ -138,6 +138,8 @@ def metric_row(row: dict[str, Any], prefix: str) -> dict[str, str]:
     return {
         "$mAP_{50}$": fmt(row.get(f"{prefix}_mAP50")),
         "$mAP_{50-95}$": fmt(row.get(f"{prefix}_mAP50_95")),
+        "mAP": fmt(row.get(f"{prefix}_mAP")),
+        "mIoU": fmt(row.get(f"{prefix}_mIoU")),
         "Precision": fmt(row.get(f"{prefix}_precision")),
         "Recall": fmt(row.get(f"{prefix}_recall")),
         "F1-Score": fmt(row.get(f"{prefix}_f1")),
@@ -171,7 +173,7 @@ def build_table2(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
             "Evaluation Target": "Unknown Classes (Zero-Shot)",
         }
         if row.get("model_type") == "yolo":
-            item.update({"$mAP_{50}$": "0.0000", "$mAP_{50-95}$": "0.0000", "Precision": "0.0000", "Recall": "0.0000", "F1-Score": "0.0000"})
+            item.update({"$mAP_{50}$": "0.0000", "$mAP_{50-95}$": "0.0000", "mAP": "0.0000", "mIoU": "0.0000", "Precision": "0.0000", "Recall": "0.0000", "F1-Score": "0.0000"})
         else:
             item.update(metric_row(row, "unknown"))
         output.append(item)
@@ -260,12 +262,12 @@ def table4_placeholder(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 def write_all_tables(out_dir: Path, rows: list[dict[str, Any]], unknown_classes: list[str]) -> None:
     table_specs = [
-        ("table1_all_class", build_table1(rows), ["Scheme ID", "Model & Training Config", "Scale", "$mAP_{50}$", "$mAP_{50-95}$", "Precision", "Recall", "F1-Score"]),
-        ("table2_zero_shot_known_train", build_table2(rows), ["Scheme ID", "Model & Training Config", "Scale", "Evaluation Target", "$mAP_{50}$", "$mAP_{50-95}$", "Precision", "Recall", "F1-Score"]),
+        ("table1_all_class", build_table1(rows), ["Scheme ID", "Model & Training Config", "Scale", "$mAP_{50}$", "$mAP_{50-95}$", "mAP", "mIoU", "Precision", "Recall", "F1-Score"]),
+        ("table2_zero_shot_known_train", build_table2(rows), ["Scheme ID", "Model & Training Config", "Scale", "Evaluation Target", "$mAP_{50}$", "$mAP_{50-95}$", "mAP", "mIoU", "Precision", "Recall", "F1-Score"]),
         ("table3_unknown_per_class_map50", build_table3(rows, unknown_classes), ["Unknown Classes", "YW-Small", "YW-Medium", "YW-Large", "SY-Small", "SY-Medium", "SY-Large"]),
         ("table4_standard_yolo_known_analysis", table4_placeholder(rows), ["Standard YOLO Scale", "Class-Agnostic Recall", "Misclassification to Known Classes", "Miss Rate (False Negative Rate)"]),
         ("table5_efficiency_latency", build_table5(rows), ["Model & Training Config", "Scale", "Parameters (M)", "Inference Time (ms)"]),
-        ("table6_pretrained_yoloworld", build_table6_pretrained_yoloworld(rows), ["Baseline", "Scale", "Evaluation Target", "$mAP_{50}$", "$mAP_{50-95}$", "Precision", "Recall", "F1-Score"]),
+        ("table6_pretrained_yoloworld", build_table6_pretrained_yoloworld(rows), ["Baseline", "Scale", "Evaluation Target", "$mAP_{50}$", "$mAP_{50-95}$", "mAP", "mIoU", "Precision", "Recall", "F1-Score"]),
     ]
     for name, table_rows, headers in table_specs:
         write_csv(out_dir / f"{name}.csv", table_rows, headers)
