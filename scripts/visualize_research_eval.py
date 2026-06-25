@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--device", default="0")
     parser.add_argument("--filter-pred-to-gt-classes", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--purple-unknown-for-yoloworld-3class",
+        action="store_true",
+        help="Draw YOLO-World 3-class unknown predictions in purple. Other YOLO-World schemes keep the normal color.",
+    )
     parser.add_argument("--output-dir", default="", help="Default: <run-dir>/<research-dir>/visualizations")
     return parser
 
@@ -148,6 +153,17 @@ def class_id_map(source_order: list[str], target_names: dict[int, str]) -> dict[
     return {source_id: target_by_name[name] for source_id, name in enumerate(source_order) if name in target_by_name}
 
 
+def is_yoloworld_3class(model_type: str, research_info: dict[str, Any]) -> bool:
+    trained_classes = list(research_info.get("trained_classes") or [])
+    return model_type == "yoloworld" and len(trained_classes) == 3
+
+
+def prediction_color(model_type: str, training_config: str) -> tuple[int, int, int]:
+    if model_type == "yoloworld" and training_config == "pretrained":
+        return ZERO_SHOT_PRED_COLOR
+    return KNOWN_PRED_COLOR
+
+
 def draw_predictions(
     image: Any,
     result: Any,
@@ -157,6 +173,7 @@ def draw_predictions(
     filter_pred_to_gt_classes: bool,
     class_map: dict[int, int] | None = None,
     color: tuple[int, int, int] = (0, 170, 70),
+    unknown_class_names: set[str] | None = None,
 ) -> int:
     boxes = getattr(result, "boxes", None)
     if boxes is None:
@@ -167,8 +184,9 @@ def draw_predictions(
         class_id = class_map.get(source_class_id, source_class_id) if class_map else source_class_id
         if filter_pred_to_gt_classes and mode == "unknown_class" and class_id not in label_class_ids:
             continue
+        box_color = ZERO_SHOT_PRED_COLOR if unknown_class_names and names.get(class_id) in unknown_class_names else color
         label = f"{names.get(class_id, str(class_id))} {float(conf_value):.2f}"
-        draw_box(image, [float(value) for value in box], label, color)
+        draw_box(image, [float(value) for value in box], label, box_color)
         pred_count += 1
     return pred_count
 
@@ -239,6 +257,7 @@ def visualize_mode(
                 filter_pred_to_gt_classes=filter_pred_to_gt_classes,
                 class_map=branch.get("class_map"),
                 color=branch.get("color", (0, 170, 70)),
+                unknown_class_names=branch.get("unknown_class_names"),
             )
             branch_counts[str(branch.get("name", "prediction"))] = count
             pred_count += count
@@ -292,6 +311,7 @@ def main() -> None:
     modes = ["all_class", "unknown_class"] if args.mode == "both" else [args.mode]
     checkpoint = resolve_visualization_checkpoint(run_dir, args.checkpoint_name, research_metrics)
     model_type = infer_model_type(run_dir, args.model_type)
+    purple_unknown_enabled = args.purple_unknown_for_yoloworld_3class and is_yoloworld_3class(model_type, research_info)
     model = load_model(checkpoint, model_type)
     model_cache: dict[str, Any] = {}
     output_root = Path(args.output_dir) if args.output_dir else research_root / "visualizations"
@@ -301,59 +321,28 @@ def main() -> None:
         metric_info = (research_metrics.get("metrics") or {}).get(mode, {})
         dataset_yaml = Path(mode_info["yaml"])
         class_order = mode_info.get("class_order") or research_info.get("evaluation_class_order") or []
+        unknown_class_names = set(research_info.get("unknown_classes") or [])
         target_names = normalize_names(load_yaml(dataset_yaml).get("names", {}))
         prediction_branches: list[dict[str, Any]] = []
 
-        merged_sources = metric_info.get("merged_sources") or {}
-        if mode == "all_class" and model_type == "yoloworld" and merged_sources:
-            known_info = research_info["datasets"].get("known_class") or {}
-            unknown_info = research_info["datasets"].get("unknown_class") or {}
-            known_order = list(known_info.get("class_order") or [])
-            unknown_order = list(unknown_info.get("class_order") or [])
-            known_source = (merged_sources.get("known") or {}).get("source_model", "")
-            unknown_source = (merged_sources.get("unknown") or {}).get("source_model", "")
-            known_model = model_from_source(str(known_source), checkpoint, model_type, model, model_cache)
-            unknown_model = model_from_source(str(unknown_source), checkpoint, model_type, model, model_cache)
-            if known_order:
-                set_yoloworld_classes(known_model, known_order)
-            if unknown_order:
-                set_yoloworld_classes(unknown_model, unknown_order)
-            prediction_branches.extend(
-                [
-                    {
-                        "name": "known",
-                        "model": known_model,
-                        "conf": float((merged_sources.get("known") or {}).get("conf", args.conf_thres)),
-                        "class_map": class_id_map(known_order, target_names),
-                        "color": KNOWN_PRED_COLOR,
-                    },
-                    {
-                        "name": "unknown",
-                        "model": unknown_model,
-                        "conf": float((merged_sources.get("unknown") or {}).get("conf", args.conf_thres)),
-                        "class_map": class_id_map(unknown_order, target_names),
-                        "color": ZERO_SHOT_PRED_COLOR,
-                    },
-                ]
-            )
-        else:
-            mode_model = model
-            mode_conf = args.conf_thres
-            source_model = metric_info.get("source_model")
-            if model_type == "yoloworld" and source_model and source_model != str(checkpoint):
-                mode_model = model_from_source(str(source_model), checkpoint, model_type, model, model_cache)
-                mode_conf = float(metric_info.get("conf", args.conf_thres))
-            if model_type == "yoloworld" and class_order:
-                set_yoloworld_classes(mode_model, list(class_order))
-            prediction_branches.append(
-                {
-                    "name": mode,
-                    "model": mode_model,
-                    "conf": mode_conf,
-                    "class_map": None,
-                    "color": ZERO_SHOT_PRED_COLOR if training_config == "pretrained" else KNOWN_PRED_COLOR,
-                }
-            )
+        mode_model = model
+        mode_conf = args.conf_thres
+        source_model = metric_info.get("source_model")
+        if model_type == "yoloworld" and source_model and source_model != str(checkpoint):
+            mode_model = model_from_source(str(source_model), checkpoint, model_type, model, model_cache)
+            mode_conf = float(metric_info.get("conf", args.conf_thres))
+        if model_type == "yoloworld" and class_order:
+            set_yoloworld_classes(mode_model, list(class_order))
+        prediction_branches.append(
+            {
+                "name": mode,
+                "model": mode_model,
+                "conf": mode_conf,
+                "class_map": None,
+                "color": prediction_color(model_type, training_config),
+                "unknown_class_names": unknown_class_names if purple_unknown_enabled else set(),
+            }
+        )
         rows.extend(
             visualize_mode(
                 mode=mode,

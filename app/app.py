@@ -95,11 +95,24 @@ def latest_checkpoint(root: Path, model_kind: str, training_config: str, scale: 
     return candidates[-1]
 
 
+def latest_checkpoint_from_roots(roots: list[Path], model_kind: str, training_config: str, scale: str) -> Path | None:
+    candidates = [checkpoint for root in roots if (checkpoint := latest_checkpoint(root, model_kind, training_config, scale))]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda path: path.parents[1].name)
+    return candidates[-1]
+
+
+def is_retention_checkpoint(checkpoint: Path) -> bool:
+    return "yoloworld_bdd10k_retention" in checkpoint.parts or "retention" in checkpoint.parents[1].name.lower()
+
+
 def discover_model_specs() -> list[ModelSpec]:
     specs: list[ModelSpec] = []
+    yoloworld_roots = [ROOT / "runs/yoloworld_bdd10k", ROOT / "runs/yoloworld_bdd10k_retention"]
     for scale in ("s", "m", "l"):
         scale_label = SCALE_LABELS[scale]
-        yworld_10 = latest_checkpoint(ROOT / "runs/yoloworld_bdd10k", "yoloworld", "10class", scale)
+        yworld_10 = latest_checkpoint_from_roots(yoloworld_roots, "yoloworld", "10class", scale)
         if yworld_10:
             specs.append(
                 ModelSpec(
@@ -116,18 +129,27 @@ def discover_model_specs() -> list[ModelSpec]:
                 )
             )
 
-        yworld_3 = latest_checkpoint(ROOT / "runs/yoloworld_bdd10k", "yoloworld", "3class", scale)
+        yworld_3 = latest_checkpoint_from_roots(yoloworld_roots, "yoloworld", "3class", scale)
         if yworld_3:
+            is_retention = is_retention_checkpoint(yworld_3)
             specs.append(
                 ModelSpec(
                     key=f"yoloworld_{scale}_3class",
-                    label=f"YOLO-World {scale_label} 3-Class + Zero-Shot Unknown",
+                    label=(
+                        f"YOLO-World {scale_label} Retention 3-Class"
+                        if is_retention
+                        else f"YOLO-World {scale_label} Fine-Tuned 3-Class"
+                    ),
                     kind="yoloworld",
                     weight=str(yworld_3.relative_to(ROOT)),
-                    description="Scheme 2: eval-style merge of known-class fine-tuned checkpoint and pretrained YOLO-World unknown branch.",
+                    description=(
+                        "Scheme 2: YOLO-World 3-class retention checkpoint with teacher pseudo-labels for open-vocabulary preservation."
+                        if is_retention
+                        else "Scheme 2: pure YOLO-World 3-class fine-tuned checkpoint; prompts are applied directly to this model."
+                    ),
                     scale=scale,
                     scheme="yoloworld_3class",
-                    prompt_mode="known",
+                    prompt_mode="user",
                     needs_prompt=True,
                     color=(185, 45, 185),
                 )
@@ -201,23 +223,6 @@ def prompts_for_spec(spec: ModelSpec, user_prompts: list[str], custom_prompts_fo
     if spec.prompt_mode == "known":
         return BDD10K_KNOWN_PROMPTS
     return user_prompts
-
-
-def split_hybrid_prompts(user_prompts: list[str]) -> tuple[list[str], list[str]]:
-    known_lookup = {name.lower(): name for name in BDD10K_KNOWN_PROMPTS}
-    known: list[str] = []
-    unknown: list[str] = []
-    for prompt in user_prompts:
-        normalized = prompt.lower()
-        if normalized in known_lookup:
-            known.append(known_lookup[normalized])
-        else:
-            unknown.append(prompt)
-    return known, unknown
-
-
-def pretrained_world_weight_for_scale(scale: str) -> str:
-    return f"yolov8{scale}-world.pt"
 
 
 def resolve_weight(weight: str) -> str:
@@ -350,19 +355,6 @@ def result_to_detections(result: Any, names: dict[int, str], color: tuple[int, i
     return detections
 
 
-def merge_frame_detections(left: list[list[dict[str, Any]]], right: list[list[dict[str, Any]]]) -> list[list[dict[str, Any]]]:
-    frame_count = max(len(left), len(right))
-    merged: list[list[dict[str, Any]]] = []
-    for idx in range(frame_count):
-        items: list[dict[str, Any]] = []
-        if idx < len(left):
-            items.extend(left[idx])
-        if idx < len(right):
-            items.extend(right[idx])
-        merged.append(items)
-    return merged
-
-
 def predict_detections_for_model(
     model: Any,
     spec: ModelSpec,
@@ -431,53 +423,6 @@ def run_inference(
         progress.progress((index - 1) / len(selected_specs), text=f"Loading {spec.label}")
         LOGGER.info("Model start key=%s label=%s kind=%s weight=%s", spec.key, spec.label, spec.kind, spec.weight)
         model = load_model(spec.kind, spec.weight)
-        if spec.scheme == "yoloworld_3class" and not custom_prompts_for_all_yoloworld:
-            known_prompts, unknown_prompts = split_hybrid_prompts(prompts)
-            unknown_weight = pretrained_world_weight_for_scale(spec.scale)
-            LOGGER.info(
-                "Eval-style YOLO-World 3-class merge enabled key=%s known_model=%s unknown_model=%s known_prompts=%s unknown_prompts=%s",
-                spec.key,
-                spec.weight,
-                unknown_weight,
-                known_prompts,
-                unknown_prompts,
-            )
-            known_detections = [[] for _ in source_paths]
-            if known_prompts:
-                set_yoloworld_prompts(model, known_prompts, device)
-                known_detections = predict_detections_for_model(
-                    model=model,
-                    spec=spec,
-                    source_paths=source_paths,
-                    imgsz=imgsz,
-                    iou=iou,
-                    device=device,
-                    color=(0, 170, 70),
-                )
-            else:
-                LOGGER.info("Skipping hybrid known branch key=%s because user prompt has no known classes.", spec.key)
-
-            unknown_detections = [[] for _ in source_paths]
-            if unknown_prompts:
-                unknown_model = load_model("yoloworld", unknown_weight)
-                set_yoloworld_prompts(unknown_model, unknown_prompts, device)
-                unknown_detections = predict_detections_for_model(
-                    model=unknown_model,
-                    spec=spec,
-                    source_paths=source_paths,
-                    imgsz=imgsz,
-                    iou=iou,
-                    device=device,
-                    color=(185, 45, 185),
-                )
-            else:
-                LOGGER.info("Skipping hybrid unknown branch key=%s because user prompt has no unknown classes.", spec.key)
-
-            frame_detections = merge_frame_detections(known_detections, unknown_detections)
-            outputs[spec.key] = frame_detections
-            log_detection_summary(spec, frame_detections)
-            continue
-
         if spec.needs_prompt:
             active_prompts = prompts_for_spec(spec, prompts, custom_prompts_for_all_yoloworld)
             LOGGER.info("Active prompts for key=%s mode=%s prompts=%s", spec.key, spec.prompt_mode, active_prompts)
@@ -612,8 +557,8 @@ def main() -> None:
             "Use custom prompt for every YOLO-World model",
             value=False,
             help=(
-                "Default off keeps prompts aligned with each scheme: 3-class fine-tuned uses car,bus,truck; "
-                "10-class fine-tuned uses all BDD10K classes; pretrained uses the custom prompt."
+                "Default off keeps prompts aligned with each scheme: 10-class fine-tuned uses all BDD10K classes; "
+                "3-class fine-tuned and pretrained YOLO-World use the custom prompt directly."
             ),
         )
         st.divider()

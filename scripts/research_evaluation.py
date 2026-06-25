@@ -693,9 +693,6 @@ def evaluate_research_metrics(
     checkpoint: Path | None = None,
     scale: str = "",
     training_config: str = "",
-    zero_shot_unknown_model: str = "",
-    use_zero_shot_unknown_model: bool = False,
-    unknown_conf: float | None = None,
     logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -781,18 +778,6 @@ def evaluate_research_metrics(
         eval_model = model
         eval_conf = conf
         source_model = str(checkpoint) if checkpoint else ""
-        if (
-            mode == "unknown_class"
-            and model_type == "yoloworld"
-            and eval_training_config == "known_class"
-            and use_zero_shot_unknown_model
-            and zero_shot_unknown_model
-        ):
-            if logger:
-                logger.info("Using separate YOLO-World zero-shot unknown model for unknown_class eval: %s", zero_shot_unknown_model)
-            eval_model = load_model(Path(zero_shot_unknown_model), "yoloworld")
-            eval_conf = unknown_conf if unknown_conf is not None else conf
-            source_model = zero_shot_unknown_model
 
         if model_type == "yoloworld":
             set_yoloworld_classes(eval_model, list(mode_info.get("class_order") or eval_order), logger)
@@ -838,36 +823,6 @@ def evaluate_research_metrics(
         save_json(output_dir / f"{mode}_metrics.json", metrics_by_mode[mode])
         if logger:
             logger.info("Research evaluation finished: mode=%s summary=%s", mode, metrics_by_mode[mode]["summary"])
-
-    if model_type == "yoloworld" and eval_training_config == "known_class":
-        all_info = dataset_info["datasets"].get("all_class") or {}
-        all_metrics = metrics_by_mode.get("all_class") or {}
-        unknown_metrics = metrics_by_mode.get("unknown_class") or {}
-        if all_metrics.get("summary") and unknown_metrics.get("summary"):
-            merged_summary = merge_known_and_unknown_summary(
-                known_summary=all_metrics["summary"],
-                unknown_summary=unknown_metrics["summary"],
-                all_class_order=list(all_info.get("class_order") or eval_order),
-                known_classes=list(known_classes or DEFAULT_KNOWN_CLASSES),
-                unknown_classes=list(unknown_classes or DEFAULT_UNKNOWN_CLASSES),
-                class_counts=all_info.get("class_annotation_counts") or {},
-            )
-            all_metrics["summary"] = merged_summary
-            all_metrics["raw"] = merged_summary["raw_results"]
-            all_metrics["merged_sources"] = {
-                "known": {
-                    "source_model": all_metrics.get("source_model"),
-                    "conf": all_metrics.get("conf"),
-                },
-                "unknown": {
-                    "source_model": unknown_metrics.get("source_model"),
-                    "conf": unknown_metrics.get("conf"),
-                },
-            }
-            metrics_by_mode["all_class"] = all_metrics
-            save_json(output_dir / "all_class_metrics.json", all_metrics)
-            if logger:
-                logger.info("YOLO-World known-class all_class summary merged from known and unknown branches: %s", merged_summary)
 
     all_summary = metrics_by_mode.get("all_class", {}).get("summary", {})
     unknown_summary = metrics_by_mode.get("unknown_class", {}).get("summary", {})
@@ -1023,9 +978,6 @@ def evaluate_run_dir(
         checkpoint=checkpoint,
         scale=scale,
         training_config=training_config,
-        zero_shot_unknown_model=str(args.get("zero_shot_unknown_model", "")),
-        use_zero_shot_unknown_model=bool(args.get("use_zero_shot_unknown_model", False)),
-        unknown_conf=float(args["unknown_conf_thres"]) if "unknown_conf_thres" in args else None,
         logger=logger,
     )
 

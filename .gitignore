@@ -22,7 +22,7 @@ nohup.out
 data/*
 !data/bdd10k/
 data/bdd10k/*
-!data/bdd10k/bdd10k.yaml
+!data/bdd10k/bdd10k.yaml\
 
 # Experiment outputs
 runs/
@@ -53,3 +53,8 @@ outpus/
 Thumbs.db
 .vscode/
 .idea/
+
+# Markdown notes
+*.md
+!README.md
+!**/README.md

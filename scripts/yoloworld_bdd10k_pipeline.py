@@ -1155,9 +1155,6 @@ def run_research_evaluation(model: Any, args: argparse.Namespace, experiment_dir
         run_dir=experiment_dir,
         checkpoint=checkpoint,
         logger=logger,
-        zero_shot_unknown_model=args.zero_shot_unknown_model,
-        use_zero_shot_unknown_model=args.use_zero_shot_unknown_model,
-        unknown_conf=args.unknown_conf_thres,
     )
 
 

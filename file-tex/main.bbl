@@ -7,7 +7,8 @@
 \providecommand{\BIBentrySTDinterwordspacing}{\spaceskip=0pt\relax}
 \providecommand{\BIBentryALTinterwordstretchfactor}{4}
 \providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
-\BIBentryALTinterwordstretchfactor\fontdimen3\font minus \fontdimen4\font\relax}
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
 \providecommand{\BIBforeignlanguage}[2]{{%
 \expandafter\ifx\csname l@#1\endcsname\relax
 \typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
@@ -21,103 +22,173 @@
 \BIBdecl
 
 \bibitem{Jebamikyous2022Autonomous}
-H.-H. Jebamikyous and R.~F. Kashef, ``Autonomous vehicles perception (avp) using deep learning: Modeling, assessment, challenges,'' \emph{IEEE Access}, vol.~PP, pp. 1--1, 2022.
+H.-H. Jebamikyous and R.~F. Kashef, ``Autonomous vehicles perception (avp)
+  using deep learning: Modeling, assessment, challenges,'' \emph{IEEE Access},
+  vol.~PP, pp. 1--1, 2022.
 
 \bibitem{Pravallika2024Deep}
-A.~Pravallika, M.~Hashmi, and A.~Gupta, ``Deep learning frontiers in 3d object detection: A comprehensive review for autonomous driving,'' \emph{IEEE Access}, vol.~12, pp. 173\,936--173\,980, 2024.
+A.~Pravallika, M.~Hashmi, and A.~Gupta, ``Deep learning frontiers in 3d object
+  detection: A comprehensive review for autonomous driving,'' \emph{IEEE
+  Access}, vol.~12, pp. 173\,936--173\,980, 2024.
 
 \bibitem{Redmon2015You}
-J.~Redmon, S.~Divvala, R.~B. Girshick, and A.~Farhadi, ``You only look once: Unified, real-time object detection,'' \emph{2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, pp. 779--788, 2015.
+J.~Redmon, S.~Divvala, R.~B. Girshick, and A.~Farhadi, ``You only look once:
+  Unified, real-time object detection,'' \emph{2016 IEEE Conference on Computer
+  Vision and Pattern Recognition (CVPR)}, pp. 779--788, 2015.
 
 \bibitem{Terven2023A}
-J.~R. Terven, D.-M. Córdova-Esparza, and J.-A. Romero-González, ``A comprehensive review of yolo architectures in computer vision: From yolov1 to yolov8 and yolo-nas,'' \emph{Mach. Learn. Knowl. Extr.}, vol.~5, pp. 1680--1716, 2023.
+J.~R. Terven, D.-M. Córdova-Esparza, and J.-A. Romero-González, ``A
+  comprehensive review of yolo architectures in computer vision: From yolov1 to
+  yolov8 and yolo-nas,'' \emph{Mach. Learn. Knowl. Extr.}, vol.~5, pp.
+  1680--1716, 2023.
 
 \bibitem{Cordts2016Cityscapes}
 \BIBentryALTinterwordspacing
-M.~Cordts, M.~Omran, S.~Ramos, T.~Rehfeld, M.~Enzweiler, R.~Benenson, U.~Franke, S.~Roth, and B.~Schiele, ``The cityscapes dataset for semantic urban scene understanding,'' \emph{CoRR}, vol. abs/1604.01685, 2016. [Online]. Available: \url{http://arxiv.org/abs/1604.01685}
+M.~Cordts, M.~Omran, S.~Ramos, T.~Rehfeld, M.~Enzweiler, R.~Benenson,
+  U.~Franke, S.~Roth, and B.~Schiele, ``The cityscapes dataset for semantic
+  urban scene understanding,'' \emph{CoRR}, vol. abs/1604.01685, 2016.
+  [Online]. Available: \url{http://arxiv.org/abs/1604.01685}
 \BIBentrySTDinterwordspacing
 
 \bibitem{Varma2018IDD}
 \BIBentryALTinterwordspacing
-G.~Varma, A.~Subramanian, A.~M. Namboodiri, M.~Chandraker, and C.~V. Jawahar, ``{IDD:} {A} dataset for exploring problems of autonomous navigation in unconstrained environments,'' \emph{CoRR}, vol. abs/1811.10200, 2018. [Online]. Available: \url{http://arxiv.org/abs/1811.10200}
+G.~Varma, A.~Subramanian, A.~M. Namboodiri, M.~Chandraker, and C.~V. Jawahar,
+  ``{IDD:} {A} dataset for exploring problems of autonomous navigation in
+  unconstrained environments,'' \emph{CoRR}, vol. abs/1811.10200, 2018.
+  [Online]. Available: \url{http://arxiv.org/abs/1811.10200}
 \BIBentrySTDinterwordspacing
 
 \bibitem{Sakaridis2021ACDC}
 \BIBentryALTinterwordspacing
-C.~Sakaridis, D.~Dai, and L.~V. Gool, ``{ACDC:} the adverse conditions dataset with correspondences for semantic driving scene understanding,'' \emph{CoRR}, vol. abs/2104.13395, 2021. [Online]. Available: \url{https://arxiv.org/abs/2104.13395}
+C.~Sakaridis, D.~Dai, and L.~V. Gool, ``{ACDC:} the adverse conditions dataset
+  with correspondences for semantic driving scene understanding,'' \emph{CoRR},
+  vol. abs/2104.13395, 2021. [Online]. Available:
+  \url{https://arxiv.org/abs/2104.13395}
 \BIBentrySTDinterwordspacing
 
 \bibitem{Yu2018BDD100K}
-F.~Yu, H.~Chen, X.~Wang, W.~Xian, Y.~Chen, F.~Liu, V.~Madhavan, and T.~Darrell, ``Bdd100k: A diverse driving dataset for heterogeneous multitask learning,'' \emph{2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, pp. 2633--2642, 2018.
+F.~Yu, H.~Chen, X.~Wang, W.~Xian, Y.~Chen, F.~Liu, V.~Madhavan, and T.~Darrell,
+  ``Bdd100k: A diverse driving dataset for heterogeneous multitask learning,''
+  \emph{2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition
+  (CVPR)}, pp. 2633--2642, 2018.
 
 \bibitem{Dhamija2020The}
-A.~Dhamija, M.~Günther, J.~Ventura, and T.~Boult, ``The overlooked elephant of object detection: Open set,'' in \emph{2020 IEEE Winter Conference on Applications of Computer Vision (WACV)}, 2020, pp. 1010--1019.
+A.~Dhamija, M.~Günther, J.~Ventura, and T.~Boult, ``The overlooked elephant of
+  object detection: Open set,'' in \emph{2020 IEEE Winter Conference on
+  Applications of Computer Vision (WACV)}, 2020, pp. 1010--1019.
 
 \bibitem{Li2025Out-of-distribution}
-Z.~Li, X.~Kang, J.~West, and K.~Khoshelham, ``Out-of-distribution detection in 3d applications: a review,'' \emph{ArXiv}, vol. abs/2507.00570, 2025.
+Z.~Li, X.~Kang, J.~West, and K.~Khoshelham, ``Out-of-distribution detection in
+  3d applications: a review,'' \emph{ArXiv}, vol. abs/2507.00570, 2025.
 
 \bibitem{Li2022CODA}
-K.~Li, K.~Chen, L.~Hong, C.~Ye, J.~Han, Y.~Chen, W.~Zhang, C.~Xu, D.-Y. Yeung, X.~Liang, Z.~Li, and H.~Xu, ``Coda: A real-world road corner case dataset for object detection in autonomous driving,'' in \emph{ArXiv}, vol. abs/2203.07724, 2022.
+K.~Li, K.~Chen, L.~Hong, C.~Ye, J.~Han, Y.~Chen, W.~Zhang, C.~Xu, D.-Y. Yeung,
+  X.~Liang, Z.~Li, and H.~Xu, ``Coda: A real-world road corner case dataset for
+  object detection in autonomous driving,'' in \emph{ArXiv}, vol.
+  abs/2203.07724, 2022.
 
 \bibitem{Chen2025INSIGHT}
-D.~Chen, Z.~Zhang, Y.~Liu, and X.~Yang, ``Insight: Enhancing autonomous driving safety through vision-language models on context-aware hazard detection and edge case evaluation,'' \emph{ArXiv}, vol. abs/2502.00262, 2025.
+D.~Chen, Z.~Zhang, Y.~Liu, and X.~Yang, ``Insight: Enhancing autonomous driving
+  safety through vision-language models on context-aware hazard detection and
+  edge case evaluation,'' \emph{ArXiv}, vol. abs/2502.00262, 2025.
 
 \bibitem{Radford2021Learning}
-A.~Radford, J.~W. Kim, C.~Hallacy, A.~Ramesh, G.~Goh, S.~Agarwal, G.~Sastry, A.~Askell, P.~Mishkin, J.~Clark, G.~Krueger, and I.~Sutskever, ``Learning transferable visual models from natural language supervision,'' in \emph{ArXiv}, vol. abs/2103.00020, 2021.
+A.~Radford, J.~W. Kim, C.~Hallacy, A.~Ramesh, G.~Goh, S.~Agarwal, G.~Sastry,
+  A.~Askell, P.~Mishkin, J.~Clark, G.~Krueger, and I.~Sutskever, ``Learning
+  transferable visual models from natural language supervision,'' in
+  \emph{ArXiv}, vol. abs/2103.00020, 2021.
 
 \bibitem{Li2024From}
-Z.~Li, Z.~Xiang, J.~West, and K.~Khoshelham, ``From open vocabulary to open world: Teaching vision language models to detect novel objects,'' \emph{ArXiv}, vol. abs/2411.18207, 2024.
+Z.~Li, Z.~Xiang, J.~West, and K.~Khoshelham, ``From open vocabulary to open
+  world: Teaching vision language models to detect novel objects,''
+  \emph{ArXiv}, vol. abs/2411.18207, 2024.
 
 \bibitem{Cheng2024YOLO-World}
-T.~Cheng, L.~Song, Y.~Ge, W.~Liu, X.~Wang, and Y.~Shan, ``Yolo-world: Real-time open-vocabulary object detection,'' \emph{2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, pp. 16\,901--16\,911, 2024.
+T.~Cheng, L.~Song, Y.~Ge, W.~Liu, X.~Wang, and Y.~Shan, ``Yolo-world: Real-time
+  open-vocabulary object detection,'' \emph{2024 IEEE/CVF Conference on
+  Computer Vision and Pattern Recognition (CVPR)}, pp. 16\,901--16\,911, 2024.
 
 \bibitem{Diwan2022Object}
-T.~Diwan, G.~Anirudh, and J.~V. Tembhurne, ``Object detection using yolo: challenges, architectural successors, datasets and applications,'' \emph{Multimedia Tools and Applications}, vol.~82, pp. 9243 -- 9275, 2022.
+T.~Diwan, G.~Anirudh, and J.~V. Tembhurne, ``Object detection using yolo:
+  challenges, architectural successors, datasets and applications,''
+  \emph{Multimedia Tools and Applications}, vol.~82, pp. 9243 -- 9275, 2022.
 
 \bibitem{Vijayakumar2024YOLO-based}
-A.~Vijayakumar and S.~Vairavasundaram, ``Yolo-based object detection models: A review and its applications,'' \emph{Multimedia Tools and Applications}, vol.~83, pp. 83\,535 -- 83\,574, 2024.
+A.~Vijayakumar and S.~Vairavasundaram, ``Yolo-based object detection models: A
+  review and its applications,'' \emph{Multimedia Tools and Applications},
+  vol.~83, pp. 83\,535 -- 83\,574, 2024.
 
 \bibitem{Gu2021Open-vocabulary}
-X.~Gu, T.-Y. Lin, W.~Kuo, and Y.~Cui, ``Open-vocabulary object detection via vision and language knowledge distillation,'' 2021.
+X.~Gu, T.-Y. Lin, W.~Kuo, and Y.~Cui, ``Open-vocabulary object detection via
+  vision and language knowledge distillation,'' 2021.
 
 \bibitem{Du2022Learning}
-Y.~Du, F.~Wei, M.~Shi, Y.~Gao, and G.~Li, ``Learning to prompt for open-vocabulary object detection with vision-language model,'' \emph{2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, pp. 14\,064--14\,073, 2022.
+Y.~Du, F.~Wei, M.~Shi, Y.~Gao, and G.~Li, ``Learning to prompt for
+  open-vocabulary object detection with vision-language model,'' \emph{2022
+  IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, pp.
+  14\,064--14\,073, 2022.
 
 \bibitem{Iqbal2024Redefining}
-M.~A. Iqbal, Y.~C. Yoon, and S.~Kim, ``Redefining object detection for open-world settings: A framework for simultaneous identification of known and unknown classes,'' \emph{IEEE Access}, vol.~12, pp. 179\,707--179\,725, 2024.
+M.~A. Iqbal, Y.~C. Yoon, and S.~Kim, ``Redefining object detection for
+  open-world settings: A framework for simultaneous identification of known and
+  unknown classes,'' \emph{IEEE Access}, vol.~12, pp. 179\,707--179\,725, 2024.
 
 \bibitem{Schmarje2024UNCOVER}
-L.~Schmarje, K.~Sakman, R.~Koch, and D.~Zhang, ``Uncover: Unknown class object detection for autonomous vehicles in real-time,'' \emph{ArXiv}, vol. abs/2412.03986, 2024.
+L.~Schmarje, K.~Sakman, R.~Koch, and D.~Zhang, ``Uncover: Unknown class object
+  detection for autonomous vehicles in real-time,'' \emph{ArXiv}, vol.
+  abs/2412.03986, 2024.
 
 \bibitem{Liu2024Benchmarking}
-J.~Liu, Z.~Wang, L.~Ma, C.~Fang, T.~Bai, X.~Zhang, J.~Liu, and Z.~Chen, ``Benchmarking object detection robustness against real-world corruptions,'' \emph{International Journal of Computer Vision}, vol. 132, pp. 4398 -- 4416, 2024.
+J.~Liu, Z.~Wang, L.~Ma, C.~Fang, T.~Bai, X.~Zhang, J.~Liu, and Z.~Chen,
+  ``Benchmarking object detection robustness against real-world corruptions,''
+  \emph{International Journal of Computer Vision}, vol. 132, pp. 4398 -- 4416,
+  2024.
 
 \bibitem{Chhipa2024Open-Vocabulary}
-P.~C. Chhipa, K.~De, M.~S. Chippa, R.~Saini, and M.~Liwicki, ``Open-vocabulary object detectors: Robustness challenges under distribution shifts,'' pp. 62--79, 2024.
+P.~C. Chhipa, K.~De, M.~S. Chippa, R.~Saini, and M.~Liwicki, ``Open-vocabulary
+  object detectors: Robustness challenges under distribution shifts,'' pp.
+  62--79, 2024.
 
 \bibitem{10605392}
-D.~Gupta, R.~D. Lee, and L.~Wynter, ``On efficient object-detection nas for adas on edge devices,'' in \emph{2024 IEEE Conference on Artificial Intelligence (CAI)}, 2024, pp. 1005--1010.
+D.~Gupta, R.~D. Lee, and L.~Wynter, ``On efficient object-detection nas for
+  adas on edge devices,'' in \emph{2024 IEEE Conference on Artificial
+  Intelligence (CAI)}, 2024, pp. 1005--1010.
 
 \bibitem{11376542}
-D.~Geever, T.~Brophy, I.~A. Shah, E.~Ward, B.~Deegan, M.~Glavin, and E.~Jones, ``Evaluation of interpolation methods for image downsampling in automotive computer vision,'' in \emph{2025 IEEE International Conference on Vehicular Electronics and Safety (ICVES)}, 2025, pp. 380--386.
+D.~Geever, T.~Brophy, I.~A. Shah, E.~Ward, B.~Deegan, M.~Glavin, and E.~Jones,
+  ``Evaluation of interpolation methods for image downsampling in automotive
+  computer vision,'' in \emph{2025 IEEE International Conference on Vehicular
+  Electronics and Safety (ICVES)}, 2025, pp. 380--386.
 
 \bibitem{10550965}
-C.~Li, G.~Tan, C.~Wu, and M.~Li, ``Yolov7-vd: An algorithm for vehicle detection in complex environments,'' in \emph{2023 4th International Conference on Computer, Big Data and Artificial Intelligence (ICCBD+AI)}, 2023, pp. 743--747.
+C.~Li, G.~Tan, C.~Wu, and M.~Li, ``Yolov7-vd: An algorithm for vehicle
+  detection in complex environments,'' in \emph{2023 4th International
+  Conference on Computer, Big Data and Artificial Intelligence (ICCBD+AI)},
+  2023, pp. 743--747.
 
 \bibitem{bdd100kModelZoo}
-{BDD100K Model Zoo Contributors}, ``{BDD100K Model Zoo: Object Detection Models},'' \url{https://github.com/SysCV/bdd100k-models/tree/main/det}, 2021, accessed: 2026-06-22.
+{BDD100K Model Zoo Contributors}, ``{BDD100K Model Zoo: Object Detection
+  Models},'' \url{https://github.com/SysCV/bdd100k-models/tree/main/det}, 2021,
+  accessed: 2026-06-22.
 
 \bibitem{agronomy14122830}
 \BIBentryALTinterwordspacing
-C.~C. Mullins, T.~J. Esau, Q.~U. Zaman, C.~L. Toombs, and P.~J. Hennessy, ``Leveraging zero-shot detection mechanisms to accelerate image annotation for machine learning in wild blueberry,'' \emph{Agronomy}, vol.~14, no.~12, 2024. [Online]. Available: \url{https://www.mdpi.com/2073-4395/14/12/2830}
+C.~C. Mullins, T.~J. Esau, Q.~U. Zaman, C.~L. Toombs, and P.~J. Hennessy,
+  ``Leveraging zero-shot detection mechanisms to accelerate image annotation
+  for machine learning in wild blueberry,'' \emph{Agronomy}, vol.~14, no.~12,
+  2024. [Online]. Available: \url{https://www.mdpi.com/2073-4395/14/12/2830}
 \BIBentrySTDinterwordspacing
 
 \bibitem{Tang2025Prompt}
-Y.~Tang, W.~Han, M.~Liu, and Lei, ``Prompt-guided {AI} analytics for manufacturing digital twins: Adapting {YOLO-World} to industrial object detection,'' \emph{JAIAA}, vol.~3, no.~1, pp. 60--79, mar 2025.
+Y.~Tang, W.~Han, M.~Liu, and Lei, ``Prompt-guided {AI} analytics for
+  manufacturing digital twins: Adapting {YOLO-World} to industrial object
+  detection,'' \emph{JAIAA}, vol.~3, no.~1, pp. 60--79, mar 2025.
 
 \bibitem{paperyolo-world}
 \BIBentryALTinterwordspacing
-T.~Cheng, L.~Song, Y.~Ge, W.~Liu, X.~Wang, and Y.~Shan, ``Yolo-world: Real-time open-vocabulary object detection,'' 2024. [Online]. Available: \url{https://arxiv.org/abs/2401.17270}
+T.~Cheng, L.~Song, Y.~Ge, W.~Liu, X.~Wang, and Y.~Shan, ``Yolo-world: Real-time
+  open-vocabulary object detection,'' 2024. [Online]. Available:
+  \url{https://arxiv.org/abs/2401.17270}
 \BIBentrySTDinterwordspacing
 
 \end{thebibliography}
